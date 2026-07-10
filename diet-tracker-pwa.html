@@ -83,17 +83,17 @@
   }
   .gauge-stat.accent .value{ color:var(--amber); }
   .stats-row{
-    display:flex;
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(100px, 1fr));
     gap:10px;
     margin-top:12px;
-    flex-wrap:wrap;
   }
   .mini-stat{
-    flex:1 1 90px;
     background:#0E141A;
     border:1px solid var(--border);
     border-radius:8px;
     padding:8px 10px;
+    min-width:0;
   }
   .mini-stat .label{
     font-size:10px;
@@ -105,6 +105,7 @@
   .mini-stat .value{
     font-size:16px;
     color:var(--text);
+    white-space:nowrap;
   }
 
   .gauge-bar-wrap{ margin-top:4px; }
@@ -465,10 +466,10 @@
           </div>
           <div class="toggle-field">
             <label for="f-trained">ジム</label>
-            <div class="switch">
+            <label class="switch">
               <input type="checkbox" id="f-trained">
               <span class="slider"></span>
-            </div>
+            </label>
           </div>
         </div>
         <div class="btn-add-wrap">
@@ -668,7 +669,7 @@
     var s = computeGaugeStats();
     var el = document.getElementById("gaugePanel");
 
-    var paceText = s.weeklyPace === null ? "—" : (s.weeklyPace >= 0 ? "-" : "+") + fmt1(Math.abs(s.weeklyPace)) + " kg/週";
+    var paceText = s.weeklyPace === null ? "—" : (s.weeklyPace >= 0 ? "-" : "+") + fmt1(Math.abs(s.weeklyPace)) + "kg/週";
     var etaText = s.etaWeeks === null ? "—" : fmt1(s.etaWeeks) + " 週";
     var streakText = s.streak + " 日";
 
