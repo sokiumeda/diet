@@ -6,6 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0B0F14">
 <title>Diet Tracker</title>
 <style>
   :root{
@@ -22,7 +23,7 @@
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     --mono: ui-monospace, "SF Mono", Menlo, monospace;
   }
-  *{box-sizing:border-box;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html{
     background:var(--bg);
   }
@@ -129,10 +130,12 @@
     overflow:hidden;
   }
   .gauge-bar-fill{
+    /* anchored to the 90kg (start) end so the fill's leading edge sits at the
+       current weight on the tick axis, not at the goal end */
     position:absolute;
-    top:0; left:0; bottom:0;
+    top:0; right:0; bottom:0;
     background:linear-gradient(90deg, var(--cyan), var(--amber));
-    border-radius:7px 0 0 7px;
+    border-radius:0 7px 7px 0;
     transition:width .3s ease;
   }
   .gauge-ticks{
@@ -221,8 +224,11 @@
     font-family:var(--mono);
     font-size:15px;
     width:100%;
-    max-width:200px;
+    max-width:260px;
+    min-height:42px;
   }
+  /* iOS Safari centers the date value by default, unlike other inputs */
+  .field input[type="date"]::-webkit-date-and-time-value{ text-align:left; }
   .field input:focus{ outline:1px solid var(--cyan); }
   .form-bottom-row{
     display:flex;
@@ -253,7 +259,7 @@
   }
   .switch .slider{
     position:absolute;
-    inset:0;
+    top:0; left:0; right:0; bottom:0;
     background:#0E141A;
     border:1px solid var(--border2);
     border-radius:24px;
@@ -340,9 +346,9 @@
     border:1px solid var(--border2);
     color:var(--muted);
     border-radius:6px;
-    width:26px;
-    height:26px;
-    font-size:14px;
+    width:32px;
+    height:32px;
+    font-size:15px;
     line-height:1;
     cursor:pointer;
   }
@@ -473,7 +479,7 @@
   }
   .recipe-overlay{
     position:fixed;
-    inset:0;
+    top:0; left:0; right:0; bottom:0;
     background:rgba(4,6,9,.65);
     display:none;
     align-items:flex-end;
@@ -541,6 +547,14 @@
     font-size:14px;
     line-height:1.9;
   }
+
+  .app-version{
+    text-align:center;
+    color:var(--mutedDim);
+    font-size:10px;
+    font-family:var(--mono);
+    padding-top:10px;
+  }
 </style>
 </head>
 <body>
@@ -588,6 +602,8 @@
     <h2 class="section-title">今日の食事例</h2>
     <div id="mealsArea"></div>
   </div>
+
+  <div class="app-version" id="appVersion"></div>
 </div>
 
 <div class="tabbar">
@@ -614,6 +630,7 @@
   "use strict";
 
   var STORAGE_KEY = "nexra-diet-tracker";
+  var APP_VERSION = "1.1";
 
   var PROFILE = {
     heightCm: 176,
@@ -822,7 +839,17 @@
     var el = document.getElementById("gaugePanel");
 
     var paceText = s.weeklyPace === null ? "—" : (s.weeklyPace >= 0 ? "-" : "+") + fmt1(Math.abs(s.weeklyPace)) + "kg/週";
-    var etaText = s.etaWeeks === null ? "—" : fmt1(s.etaWeeks) + " 週";
+    var etaText = "—";
+    if (s.remaining <= 0 && s.hasLogs) {
+      etaText = "達成!";
+    } else if (s.etaWeeks !== null) {
+      etaText = fmt1(s.etaWeeks) + " 週";
+      if (s.etaWeeks < 260) {
+        var etaDate = new Date();
+        etaDate.setDate(etaDate.getDate() + Math.round(s.etaWeeks * 7));
+        etaText += " (" + (etaDate.getMonth() + 1) + "/" + etaDate.getDate() + "頃)";
+      }
+    }
     var streakText = s.streak + " 日";
 
     var min = PROFILE.goalWeight;
@@ -885,7 +912,9 @@
 
     el.querySelectorAll("[data-del]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        deleteLog(btn.getAttribute("data-del"));
+        var dateStr = btn.getAttribute("data-del");
+        if (!window.confirm(dateStr + " の記録を削除しますか?")) return;
+        deleteLog(dateStr);
         renderAll();
       });
     });
@@ -1085,16 +1114,10 @@
     '</details>';
 
     el.innerHTML = summaryHtml + '<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">' + cardsHtml + '</div><div style="margin-top:10px;">' + allMenuHtml + '</div>';
-
-    el.querySelectorAll("[data-mt]").forEach(function (node) {
-      node.addEventListener("click", function () {
-        openRecipe(node.getAttribute("data-mt"), parseInt(node.getAttribute("data-idx"), 10));
-      });
-    });
   }
 
   function openRecipe(mt, idx) {
-    var m = MEALS[mt][idx];
+    var m = MEALS[mt] && MEALS[mt][idx];
     if (!m) return;
     document.getElementById("recipeTime").textContent = MEAL_TIME_LABEL[mt];
     document.getElementById("recipeTitle").textContent = m.name;
@@ -1106,10 +1129,12 @@
     document.getElementById("recipeSteps").innerHTML =
       (m.steps || []).map(function (s) { return "<li>" + s + "</li>"; }).join("");
     document.getElementById("recipeOverlay").classList.add("active");
+    document.body.style.overflow = "hidden";
   }
 
   function closeRecipe() {
     document.getElementById("recipeOverlay").classList.remove("active");
+    document.body.style.overflow = "";
   }
 
   function setupRecipeModal() {
@@ -1117,6 +1142,15 @@
     document.getElementById("recipeClose").addEventListener("click", closeRecipe);
     overlay.addEventListener("click", function (e) {
       if (e.target === overlay) closeRecipe();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeRecipe();
+    });
+    // delegate taps so listeners survive re-renders of #mealsArea
+    document.getElementById("mealsArea").addEventListener("click", function (e) {
+      var node = e.target.closest ? e.target.closest("[data-mt]") : null;
+      if (!node) return;
+      openRecipe(node.getAttribute("data-mt"), parseInt(node.getAttribute("data-idx"), 10));
     });
   }
 
@@ -1164,6 +1198,7 @@
   setupTabs();
   setupForm();
   setupRecipeModal();
+  document.getElementById("appVersion").textContent = "v" + APP_VERSION;
   renderAll();
 })();
 </script>
