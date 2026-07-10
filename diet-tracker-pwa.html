@@ -453,14 +453,96 @@
   .menu-item{
     display:flex;
     justify-content:space-between;
+    align-items:center;
     gap:8px;
-    padding:6px 0;
+    padding:8px 4px;
     border-bottom:1px solid var(--border);
     font-size:13px;
+    cursor:pointer;
   }
+  .menu-item:active{ background:#0E141A; }
   .menu-item:last-child{ border-bottom:none; }
   .menu-item .mname{ color:var(--text); flex:1; }
   .menu-item .mmacro{ color:var(--muted); font-family:var(--mono); font-size:12px; white-space:nowrap; }
+
+  /* ---- recipe modal ---- */
+  .meal-card{ cursor:pointer; }
+  .meal-card:active{ border-color:var(--border2); }
+  .meal-card .recipe-hint{
+    margin-top:8px;
+    font-size:11px;
+    color:var(--cyan);
+  }
+  .recipe-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(4,6,9,.65);
+    display:none;
+    align-items:flex-end;
+    justify-content:center;
+    z-index:50;
+  }
+  .recipe-overlay.active{ display:flex; }
+  .recipe-modal{
+    position:relative;
+    background:var(--panel);
+    border:1px solid var(--border2);
+    border-radius:16px 16px 0 0;
+    padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+    width:100%;
+    max-width:560px;
+    max-height:80vh;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  .recipe-close{
+    position:absolute;
+    top:12px; right:12px;
+    background:#0E141A;
+    border:1px solid var(--border2);
+    color:var(--muted);
+    width:30px; height:30px;
+    border-radius:50%;
+    font-size:16px;
+    line-height:1;
+    cursor:pointer;
+  }
+  .recipe-time{
+    font-size:11px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    margin-bottom:4px;
+  }
+  .recipe-title{
+    font-size:18px;
+    color:var(--text);
+    line-height:1.4;
+    padding-right:36px;
+    margin-bottom:10px;
+  }
+  .recipe-macros{
+    display:flex;
+    gap:16px;
+    margin-bottom:6px;
+  }
+  .recipe-macros .num{ color:var(--amber); font-size:15px; }
+  .recipe-macros .label{ color:var(--muted); font-size:10px; text-transform:uppercase; }
+  .recipe-modal h4{
+    font-size:12px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    margin:16px 0 8px;
+  }
+  .recipe-ingredients,
+  .recipe-steps{
+    margin:0;
+    padding-left:20px;
+    color:var(--text);
+    font-size:14px;
+    line-height:1.9;
+  }
 </style>
 </head>
 <body>
@@ -516,6 +598,19 @@
   <button class="tab-btn" data-tab="meals"><span class="icon">&#127860;</span>食事例</button>
 </div>
 
+<div class="recipe-overlay" id="recipeOverlay">
+  <div class="recipe-modal">
+    <button class="recipe-close" id="recipeClose" aria-label="閉じる">&times;</button>
+    <div class="recipe-time" id="recipeTime"></div>
+    <div class="recipe-title" id="recipeTitle"></div>
+    <div class="recipe-macros" id="recipeMacros"></div>
+    <h4>材料</h4>
+    <ul class="recipe-ingredients" id="recipeIngredients"></ul>
+    <h4>作り方</h4>
+    <ol class="recipe-steps" id="recipeSteps"></ol>
+  </div>
+</div>
+
 <script>
 (function(){
   "use strict";
@@ -532,31 +627,73 @@
 
   var MEALS = {
     breakfast: [
-      { name: "白米・焼き鮭・卵焼き・味噌汁", kcal: 520, protein: 28 },
-      { name: "白米・納豆・海苔・ほうれん草のおひたし", kcal: 480, protein: 22 },
-      { name: "白米・鶏むね肉のソテー・野菜スープ", kcal: 560, protein: 34 },
-      { name: "白米・目玉焼き・ベーコン・トマト", kcal: 540, protein: 24 },
-      { name: "白米・鯖の塩焼き・大根おろし・味噌汁", kcal: 570, protein: 30 },
-      { name: "白米・豆腐とわかめの味噌汁・ゆで卵", kcal: 470, protein: 25 },
-      { name: "白米・鶏むね肉の親子丼風・小鉢", kcal: 590, protein: 36 },
+      { name: "白米・焼き鮭・卵焼き・味噌汁", kcal: 520, protein: 28,
+        ingredients: ["白米 150g", "塩鮭 1切れ", "卵 2個", "だし汁 200ml", "味噌 大さじ1", "わかめ 少々"],
+        steps: ["鮭に軽く塩をふり、グリルで両面を焼く", "卵を溶き、だし少々を加えて卵焼きを焼く", "鍋にだし汁を温め、味噌を溶いてわかめを加える", "白米と共に盛り付ける"] },
+      { name: "白米・納豆・海苔・ほうれん草のおひたし", kcal: 480, protein: 22,
+        ingredients: ["白米 150g", "納豆 1パック", "焼き海苔 適量", "ほうれん草 1束", "醤油 小さじ1", "かつお節 少々"],
+        steps: ["ほうれん草を茹でて水気を絞り、3cm幅に切る", "醤油とかつお節で和える", "納豆はよく混ぜてタレを加える", "白米・海苔と共に盛り付ける"] },
+      { name: "白米・鶏むね肉のソテー・野菜スープ", kcal: 560, protein: 34,
+        ingredients: ["白米 150g", "鶏むね肉 100g", "塩こしょう 少々", "キャベツ・にんじん・玉ねぎ 各適量", "コンソメ 1個", "水 300ml"],
+        steps: ["鶏むね肉に塩こしょうをして薄切りにし、フライパンでソテーする", "野菜を一口大に切る", "鍋に水とコンソメ、野菜を入れて煮込む", "白米と共に盛り付ける"] },
+      { name: "白米・目玉焼き・ベーコン・トマト", kcal: 540, protein: 24,
+        ingredients: ["白米 150g", "卵 2個", "ベーコン 2枚", "トマト 1個", "塩こしょう 少々"],
+        steps: ["フライパンでベーコンをカリッと焼く", "同じフライパンで目玉焼きを作る", "トマトをスライスして添える", "白米と共に盛り付ける"] },
+      { name: "白米・鯖の塩焼き・大根おろし・味噌汁", kcal: 570, protein: 30,
+        ingredients: ["白米 150g", "塩鯖 1切れ", "大根おろし 適量", "だし汁 200ml", "味噌 大さじ1", "ねぎ 少々"],
+        steps: ["鯖をグリルで両面焼く", "大根をすりおろす", "だし汁に味噌を溶き、ねぎを加えて味噌汁を作る", "白米・大根おろしと共に盛り付ける"] },
+      { name: "白米・豆腐とわかめの味噌汁・ゆで卵", kcal: 470, protein: 25,
+        ingredients: ["白米 150g", "卵 2個", "絹豆腐 1/2丁", "わかめ 少々", "だし汁 200ml", "味噌 大さじ1"],
+        steps: ["卵を沸騰したお湯で7〜8分茹でて殻をむく", "だし汁を温め、豆腐とわかめを加える", "味噌を溶き入れて味噌汁を仕上げる", "白米と共に盛り付ける"] },
+      { name: "白米・鶏むね肉の親子丼風・小鉢", kcal: 590, protein: 36,
+        ingredients: ["白米 150g", "鶏むね肉 100g", "卵 2個", "玉ねぎ 1/4個", "めんつゆ 大さじ2", "水 100ml", "小鉢(冷奴など) 1品"],
+        steps: ["玉ねぎと鶏むね肉を一口大に切る", "鍋にめんつゆと水、玉ねぎ、鶏肉を入れて煮る", "溶き卵を回し入れてふたをし半熟に仕上げる", "白米にのせ、小鉢を添える"] },
     ],
     lunch: [
-      { name: "白米・鶏胸肉の照り焼き・キャベツ千切り", kcal: 650, protein: 40 },
-      { name: "白米・豚肉の生姜焼き・味噌汁", kcal: 700, protein: 32 },
-      { name: "白米・サバの味噌煮・小松菜炒め", kcal: 630, protein: 30 },
-      { name: "白米・牛肉と野菜のプルコギ風", kcal: 680, protein: 35 },
-      { name: "白米・鶏むね肉と豆腐のチャンプルー", kcal: 610, protein: 38 },
-      { name: "白米・エビと野菜のチリソース", kcal: 640, protein: 28 },
-      { name: "白米・ツナと卵のサラダ丼", kcal: 600, protein: 33 },
+      { name: "白米・鶏胸肉の照り焼き・キャベツ千切り", kcal: 650, protein: 40,
+        ingredients: ["白米 150g", "鶏むね肉 120g", "醤油・みりん・砂糖 各大さじ1", "キャベツ 2枚"],
+        steps: ["鶏むね肉をフライパンで焼く", "調味料を加えて煮絡め照り焼きにする", "キャベツを千切りにする", "白米と共に盛り付ける"] },
+      { name: "白米・豚肉の生姜焼き・味噌汁", kcal: 700, protein: 32,
+        ingredients: ["白米 150g", "豚ロース薄切り 120g", "生姜(すりおろし) 小さじ1", "醤油・みりん・酒 各大さじ1", "だし汁 200ml", "味噌 大さじ1"],
+        steps: ["豚肉に生姜と調味料を揉み込む", "フライパンで両面焼く", "だし汁に味噌を溶いて味噌汁を作る", "白米と共に盛り付ける"] },
+      { name: "白米・サバの味噌煮・小松菜炒め", kcal: 630, protein: 30,
+        ingredients: ["白米 150g", "サバ切り身 1切れ", "味噌・みりん・砂糖・水 各適量", "小松菜 1束", "ごま油 小さじ1"],
+        steps: ["鍋に調味料と水を煮立て、サバを入れて煮る", "小松菜をごま油で炒める", "サバに味が染みたら火を止める", "白米と共に盛り付ける"] },
+      { name: "白米・牛肉と野菜のプルコギ風", kcal: 680, protein: 35,
+        ingredients: ["白米 150g", "牛薄切り肉 120g", "玉ねぎ・にんじん・ピーマン 各適量", "醤油・砂糖・にんにく 各適量", "ごま油 小さじ1"],
+        steps: ["野菜を細切りにする", "牛肉と調味料を混ぜて下味をつける", "ごま油で野菜と牛肉を炒め合わせる", "白米と共に盛り付ける"] },
+      { name: "白米・鶏むね肉と豆腐のチャンプルー", kcal: 610, protein: 38,
+        ingredients: ["白米 150g", "鶏むね肉 100g", "木綿豆腐 1/2丁", "もやし・にら 各適量", "醤油 小さじ2", "卵 1個"],
+        steps: ["豆腐は水切りして手でちぎる", "鶏むね肉ともやし、にらを炒める", "豆腐と卵を加えてさらに炒める", "醤油で味を整え白米と共に盛り付ける"] },
+      { name: "白米・エビと野菜のチリソース", kcal: 640, protein: 28,
+        ingredients: ["白米 150g", "むきエビ 120g", "ケチャップ・豆板醤・砂糖 各適量", "長ねぎ・にんにく 各少々"],
+        steps: ["エビに片栗粉を薄くまぶす", "フライパンでエビを炒めて取り出す", "ねぎとにんにくを炒め、調味料を加えて煮詰める", "エビを戻し絡めて白米と共に盛り付ける"] },
+      { name: "白米・ツナと卵のサラダ丼", kcal: 600, protein: 33,
+        ingredients: ["白米 150g", "ツナ缶 1缶", "卵 2個", "レタス・トマト 各適量", "マヨネーズ 適量"],
+        steps: ["卵を炒り卵にする", "ツナは油を軽く切る", "レタス・トマトを一口大に切る", "白米にすべてをのせマヨネーズをかける"] },
     ],
     dinner: [
-      { name: "白米・鶏むね肉の塩麹焼き・温野菜", kcal: 560, protein: 42 },
-      { name: "白米・豆腐ハンバーグ・キャベツサラダ", kcal: 540, protein: 30 },
-      { name: "白米・鮭の香草焼き・ブロッコリー", kcal: 580, protein: 36 },
-      { name: "白米・豚しゃぶサラダ・ポン酢", kcal: 550, protein: 33 },
-      { name: "白米・鶏むね肉と野菜の蒸し鍋", kcal: 520, protein: 40 },
-      { name: "白米・アジの塩焼き・冷奴", kcal: 570, protein: 34 },
-      { name: "白米・牛赤身ステーキ・付け合わせ野菜", kcal: 610, protein: 38 },
+      { name: "白米・鶏むね肉の塩麹焼き・温野菜", kcal: 560, protein: 42,
+        ingredients: ["白米 150g", "鶏むね肉 120g", "塩麹 大さじ1", "ブロッコリー・にんじん 各適量"],
+        steps: ["鶏むね肉に塩麹を揉み込み15分置く", "フライパンで両面焼く", "野菜を蒸すか茹でて温野菜にする", "白米と共に盛り付ける"] },
+      { name: "白米・豆腐ハンバーグ・キャベツサラダ", kcal: 540, protein: 30,
+        ingredients: ["白米 150g", "鶏ひき肉 100g", "木綿豆腐 1/3丁", "玉ねぎ(みじん切り) 少々", "キャベツ 適量"],
+        steps: ["豆腐は水切りしてひき肉・玉ねぎと混ぜ成形する", "フライパンで両面じっくり焼く", "キャベツを千切りにしてサラダにする", "白米と共に盛り付ける"] },
+      { name: "白米・鮭の香草焼き・ブロッコリー", kcal: 580, protein: 36,
+        ingredients: ["白米 150g", "生鮭 1切れ", "ハーブソルト・オリーブオイル 各少々", "ブロッコリー 適量"],
+        steps: ["鮭にハーブソルトをふる", "オリーブオイルでフライパン焼きにする", "ブロッコリーを茹でる", "白米と共に盛り付ける"] },
+      { name: "白米・豚しゃぶサラダ・ポン酢", kcal: 550, protein: 33,
+        ingredients: ["白米 150g", "豚しゃぶ用薄切り肉 120g", "レタス・水菜 各適量", "ポン酢 大さじ2"],
+        steps: ["湯を沸かし豚肉をしゃぶしゃぶして冷水にとる", "野菜を食べやすい大きさに切る", "豚肉と野菜を盛り付けポン酢をかける", "白米と共に盛り付ける"] },
+      { name: "白米・鶏むね肉と野菜の蒸し鍋", kcal: 520, protein: 40,
+        ingredients: ["白米 150g", "鶏むね肉 120g", "白菜・きのこ類 各適量", "だし汁 300ml", "ポン酢 適量"],
+        steps: ["鶏むね肉を薄切りにする", "鍋にだし汁と野菜、鶏肉を入れて煮る", "火が通ったらポン酢につけて食べる", "白米と共に盛り付ける"] },
+      { name: "白米・アジの塩焼き・冷奴", kcal: 570, protein: 34,
+        ingredients: ["白米 150g", "アジ 1尾", "塩 少々", "絹豆腐 1/2丁", "しょうが・醤油 各少々"],
+        steps: ["アジに塩をふりグリルで焼く", "豆腐を冷やして器に盛る", "しょうがと醤油をかけ冷奴にする", "白米と共に盛り付ける"] },
+      { name: "白米・牛赤身ステーキ・付け合わせ野菜", kcal: 610, protein: 38,
+        ingredients: ["白米 150g", "牛赤身ステーキ肉 120g", "塩こしょう 少々", "アスパラ・パプリカ 各適量"],
+        steps: ["牛肉を常温に戻し塩こしょうする", "フライパンで好みの焼き加減に焼く", "野菜をソテーして付け合わせる", "白米と共に盛り付ける"] },
     ],
   };
 
@@ -903,10 +1040,12 @@
     var today = todayStr();
 
     var picks = {};
+    var pickIdx = {};
     MEAL_TIME_ORDER.forEach(function (mt) {
       var pool = MEALS[mt];
       var idx = dailyIndex(today, mt, pool.length);
       picks[mt] = pool[idx];
+      pickIdx[mt] = idx;
     });
 
     var totalKcal = MEAL_TIME_ORDER.reduce(function (sum, mt) { return sum + picks[mt].kcal; }, 0);
@@ -916,13 +1055,14 @@
     var cardsHtml = MEAL_TIME_ORDER.map(function (mt) {
       var m = picks[mt];
       return (
-        '<div class="meal-card">' +
+        '<div class="meal-card" data-mt="' + mt + '" data-idx="' + pickIdx[mt] + '">' +
           '<div class="meal-time">' + MEAL_TIME_LABEL[mt] + '</div>' +
           '<div class="meal-name">' + m.name + '</div>' +
           '<div class="meal-macros">' +
             '<div class="macro"><div class="num">' + m.kcal + '</div><div class="label">kcal</div></div>' +
             '<div class="macro"><div class="num">' + m.protein + 'g</div><div class="label">protein</div></div>' +
           '</div>' +
+          '<div class="recipe-hint">レシピを見る &gt;</div>' +
         '</div>'
       );
     }).join("");
@@ -939,14 +1079,47 @@
 
     var allMenuHtml = '<details class="all-menu"><summary>全メニュー一覧を見る</summary>' +
       MEAL_TIME_ORDER.map(function (mt) {
-        var items = MEALS[mt].map(function (m) {
-          return '<div class="menu-item"><span class="mname">' + m.name + '</span><span class="mmacro num">' + m.kcal + 'kcal / ' + m.protein + 'g</span></div>';
+        var items = MEALS[mt].map(function (m, idx) {
+          return '<div class="menu-item" data-mt="' + mt + '" data-idx="' + idx + '"><span class="mname">' + m.name + '</span><span class="mmacro num">' + m.kcal + 'kcal / ' + m.protein + 'g</span></div>';
         }).join("");
         return '<div class="menu-group"><h3>' + MEAL_TIME_LABEL[mt] + '</h3>' + items + '</div>';
       }).join("") +
     '</details>';
 
     el.innerHTML = summaryHtml + '<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">' + cardsHtml + '</div><div style="margin-top:10px;">' + allMenuHtml + '</div>';
+
+    el.querySelectorAll("[data-mt]").forEach(function (node) {
+      node.addEventListener("click", function () {
+        openRecipe(node.getAttribute("data-mt"), parseInt(node.getAttribute("data-idx"), 10));
+      });
+    });
+  }
+
+  function openRecipe(mt, idx) {
+    var m = MEALS[mt][idx];
+    if (!m) return;
+    document.getElementById("recipeTime").textContent = MEAL_TIME_LABEL[mt];
+    document.getElementById("recipeTitle").textContent = m.name;
+    document.getElementById("recipeMacros").innerHTML =
+      '<div class="macro"><div class="num">' + m.kcal + '</div><div class="label">kcal</div></div>' +
+      '<div class="macro"><div class="num">' + m.protein + 'g</div><div class="label">protein</div></div>';
+    document.getElementById("recipeIngredients").innerHTML =
+      (m.ingredients || []).map(function (i) { return "<li>" + i + "</li>"; }).join("");
+    document.getElementById("recipeSteps").innerHTML =
+      (m.steps || []).map(function (s) { return "<li>" + s + "</li>"; }).join("");
+    document.getElementById("recipeOverlay").classList.add("active");
+  }
+
+  function closeRecipe() {
+    document.getElementById("recipeOverlay").classList.remove("active");
+  }
+
+  function setupRecipeModal() {
+    var overlay = document.getElementById("recipeOverlay");
+    document.getElementById("recipeClose").addEventListener("click", closeRecipe);
+    overlay.addEventListener("click", function (e) {
+      if (e.target === overlay) closeRecipe();
+    });
   }
 
   function renderAll() {
@@ -992,6 +1165,7 @@
   loadState();
   setupTabs();
   setupForm();
+  setupRecipeModal();
   renderAll();
 })();
 </script>
