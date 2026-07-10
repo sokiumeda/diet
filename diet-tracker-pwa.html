@@ -84,15 +84,15 @@
   .gauge-stat.accent .value{ color:var(--amber); }
   .stats-row{
     display:grid;
-    grid-template-columns:repeat(auto-fit, minmax(100px, 1fr));
-    gap:10px;
+    grid-template-columns:repeat(3, 1fr);
+    gap:8px;
     margin-top:12px;
   }
   .mini-stat{
     background:#0E141A;
     border:1px solid var(--border);
     border-radius:8px;
-    padding:8px 10px;
+    padding:8px 6px;
     min-width:0;
   }
   .mini-stat .label{
@@ -101,11 +101,16 @@
     text-transform:uppercase;
     letter-spacing:.04em;
     margin-bottom:4px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
   }
   .mini-stat .value{
-    font-size:16px;
+    font-size:14px;
     color:var(--text);
     white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
   }
 
   .gauge-bar-wrap{ margin-top:4px; }
