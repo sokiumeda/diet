@@ -83,27 +83,28 @@
   }
   .gauge-stat.accent .value{ color:var(--amber); }
   .stats-row{
-    display:grid;
-    grid-template-columns:repeat(3, 1fr);
+    display:flex;
+    flex-direction:column;
     gap:8px;
     margin-top:12px;
   }
   .mini-stat{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
     background:#0E141A;
     border:1px solid var(--border);
     border-radius:8px;
-    padding:8px 6px;
+    padding:10px 14px;
     min-width:0;
   }
   .mini-stat .label{
-    font-size:10px;
+    font-size:11px;
     color:var(--muted);
     text-transform:uppercase;
     letter-spacing:.04em;
-    margin-bottom:4px;
     white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
   }
   .mini-stat .value{
     font-size:14px;
@@ -201,7 +202,11 @@
     display:flex;
     flex-direction:column;
     gap:4px;
-    flex:1 1 100px;
+    flex:1 1 90px;
+    min-width:0;
+  }
+  .field-date{
+    flex:1.5 1 140px;
   }
   .field label{
     font-size:11px;
@@ -461,7 +466,7 @@
     <div class="panel">
       <form id="logForm">
         <div class="form-row">
-          <div class="field">
+          <div class="field field-date">
             <label for="f-date">日付</label>
             <input type="date" id="f-date" required>
           </div>
