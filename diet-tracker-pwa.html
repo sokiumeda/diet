@@ -23,21 +23,25 @@
     --mono: ui-monospace, "SF Mono", Menlo, monospace;
   }
   *{box-sizing:border-box;}
+  html{
+    background:var(--bg);
+  }
   html,body{
     margin:0;
     padding:0;
-    background:var(--bg);
     color:var(--text);
     font-family:var(--sans);
     -webkit-font-smoothing:antialiased;
-    height:100%;
   }
   body{
     display:flex;
     flex-direction:column;
     min-height:100vh;
+    background:var(--bg);
     padding-top:calc(env(safe-area-inset-top) + 10px);
     padding-bottom:calc(64px + env(safe-area-inset-bottom));
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
   }
   .num{font-family:var(--mono);}
   #app{
