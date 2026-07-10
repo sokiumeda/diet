@@ -194,19 +194,13 @@
   /* ---- form ---- */
   .form-row{
     display:flex;
-    gap:10px;
-    flex-wrap:wrap;
-    align-items:flex-end;
+    flex-direction:column;
+    gap:12px;
   }
   .field{
     display:flex;
     flex-direction:column;
     gap:4px;
-    flex:1 1 90px;
-    min-width:0;
-  }
-  .field-date{
-    flex:1.5 1 140px;
   }
   .field label{
     font-size:11px;
@@ -224,6 +218,12 @@
     width:100%;
   }
   .field input:focus{ outline:1px solid var(--cyan); }
+  .form-bottom-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+  }
   .toggle-field{
     display:flex;
     align-items:center;
@@ -280,7 +280,6 @@
     cursor:pointer;
   }
   .btn:active{ opacity:.8; }
-  .btn-add-wrap{ display:flex; justify-content:flex-end; margin-top:2px; }
 
   /* ---- history ---- */
   .history-list{
@@ -466,7 +465,7 @@
     <div class="panel">
       <form id="logForm">
         <div class="form-row">
-          <div class="field field-date">
+          <div class="field">
             <label for="f-date">日付</label>
             <input type="date" id="f-date" required>
           </div>
@@ -474,16 +473,16 @@
             <label for="f-weight">体重 (kg)</label>
             <input type="number" id="f-weight" step="0.1" min="0" placeholder="0.0" required>
           </div>
-          <div class="toggle-field">
-            <label for="f-trained">ジム</label>
-            <label class="switch">
-              <input type="checkbox" id="f-trained">
-              <span class="slider"></span>
-            </label>
+          <div class="form-bottom-row">
+            <div class="toggle-field">
+              <label for="f-trained">ジム</label>
+              <label class="switch">
+                <input type="checkbox" id="f-trained">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <button type="submit" class="btn">追加</button>
           </div>
-        </div>
-        <div class="btn-add-wrap">
-          <button type="submit" class="btn">追加</button>
         </div>
       </form>
     </div>
