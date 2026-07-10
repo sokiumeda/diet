@@ -83,30 +83,31 @@
   }
   .gauge-stat.accent .value{ color:var(--amber); }
   .stats-row{
-    display:grid;
-    grid-template-columns:repeat(3, 1fr);
+    display:flex;
+    flex-direction:column;
     gap:8px;
     margin-top:12px;
   }
   .mini-stat{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
     background:#0E141A;
     border:1px solid var(--border);
     border-radius:8px;
-    padding:8px 6px;
+    padding:10px 14px;
     min-width:0;
   }
   .mini-stat .label{
-    font-size:10px;
+    font-size:11px;
     color:var(--muted);
     text-transform:uppercase;
     letter-spacing:.04em;
-    margin-bottom:4px;
     white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
   }
   .mini-stat .value{
-    font-size:14px;
+    font-size:16px;
     color:var(--text);
     white-space:nowrap;
     overflow:hidden;
