@@ -1,0 +1,981 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Diet Tracker</title>
+<style>
+  :root{
+    --bg: #0B0F14;
+    --panel: #121920;
+    --border: #1F2A33;
+    --border2: #26333D;
+    --amber: #E8A33D;
+    --cyan: #46D2C0;
+    --red: #E5534B;
+    --text: #E7EEF3;
+    --muted: #7C8B96;
+    --mutedDim: #4C5A63;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;
+    padding:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+    height:100%;
+  }
+  body{
+    display:flex;
+    flex-direction:column;
+    min-height:100vh;
+    padding-bottom:calc(64px + env(safe-area-inset-bottom));
+  }
+  .num{font-family:var(--mono);}
+  #app{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    max-width:560px;
+    width:100%;
+    margin:0 auto;
+    padding:12px 14px 24px;
+  }
+
+  /* ---- gauge / header panel ---- */
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:14px 16px;
+    margin-bottom:12px;
+  }
+  .gauge-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    margin-bottom:10px;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+  .gauge-stat .label{
+    font-size:11px;
+    color:var(--muted);
+    letter-spacing:.03em;
+    margin-bottom:2px;
+  }
+  .gauge-stat .value{
+    font-size:26px;
+    font-weight:600;
+    color:var(--text);
+  }
+  .gauge-stat .value small{
+    font-size:13px;
+    color:var(--muted);
+    font-weight:400;
+  }
+  .gauge-stat.accent .value{ color:var(--amber); }
+  .stats-row{
+    display:flex;
+    gap:10px;
+    margin-top:12px;
+    flex-wrap:wrap;
+  }
+  .mini-stat{
+    flex:1 1 90px;
+    background:#0E141A;
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:8px 10px;
+  }
+  .mini-stat .label{
+    font-size:10px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    margin-bottom:4px;
+  }
+  .mini-stat .value{
+    font-size:16px;
+    color:var(--text);
+  }
+
+  .gauge-bar-wrap{ margin-top:4px; }
+  .gauge-bar{
+    position:relative;
+    height:14px;
+    border-radius:7px;
+    background:#0E141A;
+    border:1px solid var(--border);
+    overflow:hidden;
+  }
+  .gauge-bar-fill{
+    position:absolute;
+    top:0; left:0; bottom:0;
+    background:linear-gradient(90deg, var(--cyan), var(--amber));
+    border-radius:7px 0 0 7px;
+    transition:width .3s ease;
+  }
+  .gauge-ticks{
+    position:relative;
+    height:16px;
+    margin-top:2px;
+  }
+  .gauge-ticks .tick{
+    position:absolute;
+    top:0;
+    font-size:9px;
+    color:var(--mutedDim);
+    font-family:var(--mono);
+    transform:translateX(-50%);
+  }
+  .gauge-labels{
+    display:flex;
+    justify-content:space-between;
+    font-size:10px;
+    color:var(--muted);
+    margin-top:4px;
+  }
+
+  /* ---- tabs ---- */
+  .tabbar{
+    position:fixed;
+    bottom:0; left:0; right:0;
+    display:flex;
+    background:var(--panel);
+    border-top:1px solid var(--border);
+    padding-bottom:env(safe-area-inset-bottom);
+    z-index:10;
+  }
+  .tab-btn{
+    flex:1;
+    background:none;
+    border:none;
+    color:var(--muted);
+    font-family:var(--sans);
+    font-size:12px;
+    padding:10px 0 8px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:3px;
+    cursor:pointer;
+  }
+  .tab-btn .icon{ font-size:18px; line-height:1; }
+  .tab-btn.active{ color:var(--cyan); }
+  .tab-btn.active .icon{ filter:none; }
+
+  .tab-panel{ display:none; flex-direction:column; gap:12px; }
+  .tab-panel.active{ display:flex; }
+
+  h2.section-title{
+    font-size:13px;
+    color:var(--muted);
+    font-weight:600;
+    letter-spacing:.03em;
+    margin:2px 0 0;
+    text-transform:uppercase;
+  }
+
+  /* ---- form ---- */
+  .form-row{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    align-items:flex-end;
+  }
+  .field{
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    flex:1 1 100px;
+  }
+  .field label{
+    font-size:11px;
+    color:var(--muted);
+  }
+  .field input[type="date"],
+  .field input[type="number"]{
+    background:#0E141A;
+    border:1px solid var(--border2);
+    color:var(--text);
+    border-radius:8px;
+    padding:9px 10px;
+    font-family:var(--mono);
+    font-size:15px;
+    width:100%;
+  }
+  .field input:focus{ outline:1px solid var(--cyan); }
+  .toggle-field{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex:0 0 auto;
+  }
+  .toggle-field label{
+    font-size:11px;
+    color:var(--muted);
+  }
+  .switch{
+    position:relative;
+    width:42px;
+    height:24px;
+    flex-shrink:0;
+  }
+  .switch input{
+    opacity:0;
+    width:0;
+    height:0;
+  }
+  .switch .slider{
+    position:absolute;
+    inset:0;
+    background:#0E141A;
+    border:1px solid var(--border2);
+    border-radius:24px;
+    cursor:pointer;
+    transition:.2s;
+  }
+  .switch .slider::before{
+    content:"";
+    position:absolute;
+    height:18px;
+    width:18px;
+    left:2px;
+    top:2px;
+    background:var(--mutedDim);
+    border-radius:50%;
+    transition:.2s;
+  }
+  .switch input:checked + .slider{ background:rgba(70,210,192,.15); border-color:var(--cyan); }
+  .switch input:checked + .slider::before{ background:var(--cyan); transform:translateX(18px); }
+
+  .btn{
+    background:var(--cyan);
+    color:#04201C;
+    border:none;
+    border-radius:8px;
+    padding:10px 18px;
+    font-family:var(--sans);
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .btn:active{ opacity:.8; }
+  .btn-add-wrap{ display:flex; justify-content:flex-end; margin-top:2px; }
+
+  /* ---- history ---- */
+  .history-list{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    max-height:420px;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  .history-row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:9px 12px;
+  }
+  .history-row .date{
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--muted);
+    flex:0 0 88px;
+  }
+  .history-row .weight{
+    font-family:var(--mono);
+    font-size:15px;
+    color:var(--text);
+    flex:0 0 68px;
+  }
+  .history-row .trained-badge{
+    font-size:11px;
+    padding:2px 7px;
+    border-radius:5px;
+    font-family:var(--sans);
+    flex:0 0 auto;
+  }
+  .trained-badge.yes{
+    background:rgba(70,210,192,.14);
+    color:var(--cyan);
+    border:1px solid rgba(70,210,192,.35);
+  }
+  .trained-badge.no{
+    background:transparent;
+    color:var(--mutedDim);
+    border:1px solid var(--border2);
+  }
+  .history-row .spacer{ flex:1; }
+  .del-btn{
+    background:none;
+    border:1px solid var(--border2);
+    color:var(--muted);
+    border-radius:6px;
+    width:26px;
+    height:26px;
+    font-size:14px;
+    line-height:1;
+    cursor:pointer;
+  }
+  .del-btn:active{ color:var(--red); border-color:var(--red); }
+
+  .empty-state{
+    color:var(--muted);
+    font-size:13px;
+    padding:26px 10px;
+    text-align:center;
+    border:1px dashed var(--border2);
+    border-radius:10px;
+  }
+
+  /* ---- chart ---- */
+  .chart-wrap{
+    position:relative;
+    width:100%;
+    height:280px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:8px;
+  }
+  canvas#weightChart{
+    width:100%;
+    height:100%;
+    display:block;
+  }
+
+  /* ---- meals ---- */
+  .meal-card{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:14px 16px;
+  }
+  .meal-card .meal-time{
+    font-size:11px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    margin-bottom:4px;
+  }
+  .meal-card .meal-name{
+    font-size:15px;
+    color:var(--text);
+    margin-bottom:8px;
+    line-height:1.4;
+  }
+  .meal-card .meal-macros{
+    display:flex;
+    gap:16px;
+  }
+  .meal-macros .macro .num{
+    font-size:16px;
+    color:var(--amber);
+  }
+  .meal-macros .macro .label{
+    font-size:10px;
+    color:var(--muted);
+    text-transform:uppercase;
+  }
+  .summary-card{
+    background:#0E141A;
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:14px 16px;
+    display:flex;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  .summary-card .item .label{
+    font-size:10px;
+    color:var(--muted);
+    text-transform:uppercase;
+    margin-bottom:2px;
+  }
+  .summary-card .item .value{
+    font-size:18px;
+    color:var(--text);
+  }
+  .summary-card .item .value.over{ color:var(--red); }
+  .summary-card .item .value.ok{ color:var(--cyan); }
+
+  details.all-menu{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:10px 14px;
+  }
+  details.all-menu summary{
+    cursor:pointer;
+    font-size:13px;
+    color:var(--cyan);
+    padding:4px 0;
+  }
+  .menu-group{ margin-top:10px; }
+  .menu-group h3{
+    font-size:12px;
+    color:var(--muted);
+    text-transform:uppercase;
+    margin:10px 0 6px;
+  }
+  .menu-item{
+    display:flex;
+    justify-content:space-between;
+    gap:8px;
+    padding:6px 0;
+    border-bottom:1px solid var(--border);
+    font-size:13px;
+  }
+  .menu-item:last-child{ border-bottom:none; }
+  .menu-item .mname{ color:var(--text); flex:1; }
+  .menu-item .mmacro{ color:var(--muted); font-family:var(--mono); font-size:12px; white-space:nowrap; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div class="panel" id="gaugePanel"></div>
+
+  <div class="tab-panel active" id="tab-dashboard">
+    <h2 class="section-title">記録を追加</h2>
+    <div class="panel">
+      <form id="logForm">
+        <div class="form-row">
+          <div class="field">
+            <label for="f-date">日付</label>
+            <input type="date" id="f-date" required>
+          </div>
+          <div class="field">
+            <label for="f-weight">体重 (kg)</label>
+            <input type="number" id="f-weight" step="0.1" min="0" placeholder="0.0" required>
+          </div>
+          <div class="toggle-field">
+            <label for="f-trained">ジム</label>
+            <div class="switch">
+              <input type="checkbox" id="f-trained">
+              <span class="slider"></span>
+            </div>
+          </div>
+        </div>
+        <div class="btn-add-wrap">
+          <button type="submit" class="btn">追加</button>
+        </div>
+      </form>
+    </div>
+
+    <h2 class="section-title">履歴</h2>
+    <div id="historyList"></div>
+  </div>
+
+  <div class="tab-panel" id="tab-chart">
+    <h2 class="section-title">体重推移</h2>
+    <div id="chartArea"></div>
+  </div>
+
+  <div class="tab-panel" id="tab-meals">
+    <h2 class="section-title">今日の食事例</h2>
+    <div id="mealsArea"></div>
+  </div>
+</div>
+
+<div class="tabbar">
+  <button class="tab-btn active" data-tab="dashboard"><span class="icon">&#9998;</span>記録</button>
+  <button class="tab-btn" data-tab="chart"><span class="icon">&#128200;</span>推移</button>
+  <button class="tab-btn" data-tab="meals"><span class="icon">&#127860;</span>食事例</button>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var STORAGE_KEY = "nexra-diet-tracker";
+
+  var PROFILE = {
+    heightCm: 176,
+    startWeight: 90,
+    goalWeight: 65,
+    targetCalories: 1950,
+    targetProtein: 170,
+  };
+
+  var MEALS = {
+    breakfast: [
+      { name: "白米・焼き鮭・卵焼き・味噌汁", kcal: 520, protein: 28 },
+      { name: "白米・納豆・海苔・ほうれん草のおひたし", kcal: 480, protein: 22 },
+      { name: "白米・鶏むね肉のソテー・野菜スープ", kcal: 560, protein: 34 },
+      { name: "白米・目玉焼き・ベーコン・トマト", kcal: 540, protein: 24 },
+      { name: "白米・鯖の塩焼き・大根おろし・味噌汁", kcal: 570, protein: 30 },
+      { name: "白米・豆腐とわかめの味噌汁・ゆで卵", kcal: 470, protein: 25 },
+      { name: "白米・鶏むね肉の親子丼風・小鉢", kcal: 590, protein: 36 },
+    ],
+    lunch: [
+      { name: "白米・鶏胸肉の照り焼き・キャベツ千切り", kcal: 650, protein: 40 },
+      { name: "白米・豚肉の生姜焼き・味噌汁", kcal: 700, protein: 32 },
+      { name: "白米・サバの味噌煮・小松菜炒め", kcal: 630, protein: 30 },
+      { name: "白米・牛肉と野菜のプルコギ風", kcal: 680, protein: 35 },
+      { name: "白米・鶏むね肉と豆腐のチャンプルー", kcal: 610, protein: 38 },
+      { name: "白米・エビと野菜のチリソース", kcal: 640, protein: 28 },
+      { name: "白米・ツナと卵のサラダ丼", kcal: 600, protein: 33 },
+    ],
+    dinner: [
+      { name: "白米・鶏むね肉の塩麹焼き・温野菜", kcal: 560, protein: 42 },
+      { name: "白米・豆腐ハンバーグ・キャベツサラダ", kcal: 540, protein: 30 },
+      { name: "白米・鮭の香草焼き・ブロッコリー", kcal: 580, protein: 36 },
+      { name: "白米・豚しゃぶサラダ・ポン酢", kcal: 550, protein: 33 },
+      { name: "白米・鶏むね肉と野菜の蒸し鍋", kcal: 520, protein: 40 },
+      { name: "白米・アジの塩焼き・冷奴", kcal: 570, protein: 34 },
+      { name: "白米・牛赤身ステーキ・付け合わせ野菜", kcal: 610, protein: 38 },
+    ],
+  };
+
+  var MEAL_TIME_LABEL = { breakfast: "朝食", lunch: "昼食", dinner: "夕食" };
+  var MEAL_TIME_ORDER = ["breakfast", "lunch", "dinner"];
+
+  // deterministic per-date hash so "today's menu" is reproducible / stable across reloads
+  function dailyIndex(dateStr, mealTime, poolSize) {
+    var hash = 0;
+    var seed = dateStr + mealTime;
+    for (var i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    return hash % poolSize;
+  }
+
+  var state = { logs: [] };
+
+  function loadState() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.logs)) state.logs = parsed.logs;
+      }
+    } catch (e) {
+      state.logs = [];
+    }
+  }
+
+  function saveState() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ logs: state.logs }));
+  }
+
+  function sortedLogsAsc() {
+    return state.logs.slice().sort(function (a, b) {
+      return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+    });
+  }
+
+  function todayStr() {
+    var d = new Date();
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, "0");
+    var day = String(d.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + day;
+  }
+
+  function addOrUpdateLog(date, weight, trained) {
+    var idx = state.logs.findIndex(function (l) { return l.date === date; });
+    var entry = { date: date, weight: Math.round(weight * 10) / 10, trained: !!trained };
+    if (idx >= 0) state.logs[idx] = entry;
+    else state.logs.push(entry);
+    saveState();
+  }
+
+  function deleteLog(date) {
+    state.logs = state.logs.filter(function (l) { return l.date !== date; });
+    saveState();
+  }
+
+  function fmt1(n) {
+    return n.toFixed(1);
+  }
+
+  function daysBetween(dateA, dateB) {
+    var a = new Date(dateA + "T00:00:00");
+    var b = new Date(dateB + "T00:00:00");
+    return Math.round((b - a) / 86400000);
+  }
+
+  function prevDateStr(dateStr) {
+    var d = new Date(dateStr + "T00:00:00");
+    d.setDate(d.getDate() - 1);
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, "0");
+    var day = String(d.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + day;
+  }
+
+  function computeGaugeStats() {
+    var logsAsc = sortedLogsAsc();
+    var hasLogs = logsAsc.length > 0;
+    var currentWeight = hasLogs ? logsAsc[logsAsc.length - 1].weight : PROFILE.startWeight;
+    var remaining = currentWeight - PROFILE.goalWeight;
+
+    var weeklyPace = null;
+    if (logsAsc.length >= 2) {
+      var first = logsAsc[0];
+      var last = logsAsc[logsAsc.length - 1];
+      var elapsedDays = daysBetween(first.date, last.date);
+      var elapsedWeeks = elapsedDays / 7;
+      if (elapsedWeeks > 0) {
+        weeklyPace = (first.weight - last.weight) / elapsedWeeks;
+      }
+    }
+
+    var etaWeeks = null;
+    if (weeklyPace !== null && weeklyPace > 0) {
+      etaWeeks = remaining / weeklyPace;
+    }
+
+    var streak = 0;
+    if (hasLogs) {
+      var byDate = {};
+      state.logs.forEach(function (l) { byDate[l.date] = l; });
+      var cursor = logsAsc[logsAsc.length - 1].date;
+      while (byDate[cursor] && byDate[cursor].trained) {
+        streak++;
+        cursor = prevDateStr(cursor);
+      }
+    }
+
+    var progressPct = ((PROFILE.startWeight - currentWeight) / (PROFILE.startWeight - PROFILE.goalWeight)) * 100;
+    progressPct = Math.max(0, Math.min(100, progressPct));
+
+    return {
+      hasLogs: hasLogs,
+      currentWeight: currentWeight,
+      remaining: remaining,
+      weeklyPace: weeklyPace,
+      etaWeeks: etaWeeks,
+      streak: streak,
+      progressPct: progressPct,
+    };
+  }
+
+  function renderGauge() {
+    var s = computeGaugeStats();
+    var el = document.getElementById("gaugePanel");
+
+    var paceText = s.weeklyPace === null ? "—" : (s.weeklyPace >= 0 ? "-" : "+") + fmt1(Math.abs(s.weeklyPace)) + " kg/週";
+    var etaText = s.etaWeeks === null ? "—" : fmt1(s.etaWeeks) + " 週";
+    var streakText = s.streak + " 日";
+
+    var min = PROFILE.goalWeight;
+    var max = PROFILE.startWeight;
+    var span = max - min;
+    var ticks = [];
+    for (var t = Math.ceil(min / 5) * 5; t <= max; t += 5) {
+      ticks.push(t);
+    }
+    var ticksHtml = ticks.map(function (tv) {
+      var pct = ((tv - min) / span) * 100;
+      return '<span class="tick" style="left:' + pct + '%">' + tv + '</span>';
+    }).join("");
+
+    el.innerHTML =
+      '<div class="gauge-top">' +
+        '<div class="gauge-stat">' +
+          '<div class="label">現在の体重</div>' +
+          '<div class="value num">' + fmt1(s.currentWeight) + '<small> kg</small></div>' +
+        '</div>' +
+        '<div class="gauge-stat accent">' +
+          '<div class="label">目標まで</div>' +
+          '<div class="value num">' + fmt1(Math.max(s.remaining, 0)) + '<small> kg</small></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="gauge-bar-wrap">' +
+        '<div class="gauge-bar"><div class="gauge-bar-fill" style="width:' + s.progressPct + '%"></div></div>' +
+        '<div class="gauge-ticks">' + ticksHtml + '</div>' +
+        '<div class="gauge-labels"><span class="num">' + PROFILE.goalWeight + 'kg (目標)</span><span class="num">' + PROFILE.startWeight + 'kg (開始)</span></div>' +
+      '</div>' +
+      '<div class="stats-row">' +
+        '<div class="mini-stat"><div class="label">週間ペース</div><div class="value num">' + paceText + '</div></div>' +
+        '<div class="mini-stat"><div class="label">到達目安</div><div class="value num">' + etaText + '</div></div>' +
+        '<div class="mini-stat"><div class="label">連続トレ日数</div><div class="value num">' + streakText + '</div></div>' +
+      '</div>';
+  }
+
+  function renderHistory() {
+    var el = document.getElementById("historyList");
+    var logsDesc = sortedLogsAsc().reverse();
+    if (logsDesc.length === 0) {
+      el.innerHTML = '<div class="empty-state">まだ記録がありません。上のフォームから追加してください。</div>';
+      return;
+    }
+    var rows = logsDesc.map(function (l) {
+      var badge = l.trained
+        ? '<span class="trained-badge yes">&#9989; ジム</span>'
+        : '<span class="trained-badge no">&#8212;</span>';
+      return (
+        '<div class="history-row" data-date="' + l.date + '">' +
+          '<span class="date num">' + l.date + '</span>' +
+          '<span class="weight num">' + fmt1(l.weight) + 'kg</span>' +
+          badge +
+          '<span class="spacer"></span>' +
+          '<button class="del-btn" data-del="' + l.date + '" aria-label="削除">&times;</button>' +
+        '</div>'
+      );
+    }).join("");
+    el.innerHTML = '<div class="history-list">' + rows + '</div>';
+
+    el.querySelectorAll("[data-del]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        deleteLog(btn.getAttribute("data-del"));
+        renderAll();
+      });
+    });
+  }
+
+  var chartResizeBound = false;
+
+  function renderChart() {
+    var area = document.getElementById("chartArea");
+    var logsAsc = sortedLogsAsc();
+
+    if (logsAsc.length < 2) {
+      area.innerHTML = '<div class="empty-state">記録が2件以上になるとグラフが表示されます。</div>';
+      return;
+    }
+
+    if (!document.getElementById("weightChart")) {
+      area.innerHTML = '<div class="chart-wrap"><canvas id="weightChart"></canvas></div>';
+    }
+
+    var canvas = document.getElementById("weightChart");
+    drawChart(canvas, logsAsc);
+
+    if (!chartResizeBound) {
+      chartResizeBound = true;
+      window.addEventListener("resize", function () {
+        var activeLogs = sortedLogsAsc();
+        var c = document.getElementById("weightChart");
+        if (c && activeLogs.length >= 2) drawChart(c, activeLogs);
+      });
+    }
+  }
+
+  function drawChart(canvas, logsAsc) {
+    var wrap = canvas.parentElement;
+    var cssW = wrap.clientWidth;
+    var cssH = wrap.clientHeight;
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    var padL = 40, padR = 14, padT = 18, padB = 26;
+    var plotW = cssW - padL - padR;
+    var plotH = cssH - padT - padB;
+
+    var weights = logsAsc.map(function (l) { return l.weight; });
+    var dataMin = Math.min.apply(null, weights);
+    var dataMax = Math.max.apply(null, weights);
+    var yMin = Math.min(dataMin, PROFILE.goalWeight, PROFILE.startWeight);
+    var yMax = Math.max(dataMax, PROFILE.goalWeight, PROFILE.startWeight);
+    var yPad = Math.max((yMax - yMin) * 0.12, 1.5);
+    yMin -= yPad;
+    yMax += yPad;
+
+    function xFor(i) {
+      if (logsAsc.length === 1) return padL + plotW / 2;
+      return padL + (i / (logsAsc.length - 1)) * plotW;
+    }
+    function yFor(w) {
+      return padT + (1 - (w - yMin) / (yMax - yMin)) * plotH;
+    }
+
+    var styles = getComputedStyle(document.documentElement);
+    var cCyan = styles.getPropertyValue("--cyan").trim() || "#46D2C0";
+    var cAmber = styles.getPropertyValue("--amber").trim() || "#E8A33D";
+    var cBorder = styles.getPropertyValue("--border2").trim() || "#26333D";
+    var cMuted = styles.getPropertyValue("--muted").trim() || "#7C8B96";
+
+    ctx.strokeStyle = cBorder;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, padT);
+    ctx.lineTo(padL, padT + plotH);
+    ctx.lineTo(padL + plotW, padT + plotH);
+    ctx.stroke();
+
+    var goalY = yFor(PROFILE.goalWeight);
+    ctx.save();
+    ctx.strokeStyle = cCyan;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(padL, goalY);
+    ctx.lineTo(padL + plotW, goalY);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = cCyan;
+    ctx.font = "10px " + getComputedStyle(canvas).fontFamily;
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("目標 " + PROFILE.goalWeight + "kg", padL + 4, goalY - 3);
+
+    ctx.fillStyle = cMuted;
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "right";
+    var ySteps = 4;
+    for (var g = 0; g <= ySteps; g++) {
+      var val = yMin + (g / ySteps) * (yMax - yMin);
+      var yy = yFor(val);
+      ctx.fillText(val.toFixed(1), padL - 6, yy);
+    }
+    ctx.textAlign = "left";
+
+    ctx.fillStyle = cMuted;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    var labelEvery = Math.max(1, Math.ceil(logsAsc.length / 5));
+    logsAsc.forEach(function (l, i) {
+      if (i % labelEvery === 0 || i === logsAsc.length - 1) {
+        var shortDate = l.date.slice(5);
+        ctx.fillText(shortDate, xFor(i), padT + plotH + 6);
+      }
+    });
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+
+    ctx.strokeStyle = cAmber;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    logsAsc.forEach(function (l, i) {
+      var x = xFor(i), y = yFor(l.weight);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    ctx.fillStyle = cAmber;
+    logsAsc.forEach(function (l, i) {
+      var x = xFor(i), y = yFor(l.weight);
+      ctx.beginPath();
+      ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    ctx.fillStyle = cAmber;
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("体重", padL + plotW, padT + 10);
+  }
+
+  function renderMeals() {
+    var el = document.getElementById("mealsArea");
+    var today = todayStr();
+
+    var picks = {};
+    MEAL_TIME_ORDER.forEach(function (mt) {
+      var pool = MEALS[mt];
+      var idx = dailyIndex(today, mt, pool.length);
+      picks[mt] = pool[idx];
+    });
+
+    var totalKcal = MEAL_TIME_ORDER.reduce(function (sum, mt) { return sum + picks[mt].kcal; }, 0);
+    var totalProtein = MEAL_TIME_ORDER.reduce(function (sum, mt) { return sum + picks[mt].protein; }, 0);
+    var snackBudget = PROFILE.targetCalories - totalKcal;
+
+    var cardsHtml = MEAL_TIME_ORDER.map(function (mt) {
+      var m = picks[mt];
+      return (
+        '<div class="meal-card">' +
+          '<div class="meal-time">' + MEAL_TIME_LABEL[mt] + '</div>' +
+          '<div class="meal-name">' + m.name + '</div>' +
+          '<div class="meal-macros">' +
+            '<div class="macro"><div class="num">' + m.kcal + '</div><div class="label">kcal</div></div>' +
+            '<div class="macro"><div class="num">' + m.protein + 'g</div><div class="label">protein</div></div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join("");
+
+    var snackClass = snackBudget < 0 ? "over" : "ok";
+    var snackText = (snackBudget < 0 ? "-" : "") + Math.abs(snackBudget) + " kcal";
+
+    var summaryHtml =
+      '<div class="summary-card">' +
+        '<div class="item"><div class="label">合計 kcal</div><div class="value num">' + totalKcal + '</div></div>' +
+        '<div class="item"><div class="label">合計 protein</div><div class="value num">' + totalProtein + 'g</div></div>' +
+        '<div class="item"><div class="label">間食枠 (目標 ' + PROFILE.targetCalories + 'kcal)</div><div class="value num ' + snackClass + '">' + snackText + '</div></div>' +
+      '</div>';
+
+    var allMenuHtml = '<details class="all-menu"><summary>全メニュー一覧を見る</summary>' +
+      MEAL_TIME_ORDER.map(function (mt) {
+        var items = MEALS[mt].map(function (m) {
+          return '<div class="menu-item"><span class="mname">' + m.name + '</span><span class="mmacro num">' + m.kcal + 'kcal / ' + m.protein + 'g</span></div>';
+        }).join("");
+        return '<div class="menu-group"><h3>' + MEAL_TIME_LABEL[mt] + '</h3>' + items + '</div>';
+      }).join("") +
+    '</details>';
+
+    el.innerHTML = summaryHtml + '<div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">' + cardsHtml + '</div><div style="margin-top:12px;">' + allMenuHtml + '</div>';
+  }
+
+  function renderAll() {
+    renderGauge();
+    renderHistory();
+    renderChart();
+    renderMeals();
+  }
+
+  function setupTabs() {
+    var buttons = document.querySelectorAll(".tab-btn");
+    buttons.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var target = btn.getAttribute("data-tab");
+        buttons.forEach(function (b) { b.classList.toggle("active", b === btn); });
+        document.querySelectorAll(".tab-panel").forEach(function (p) {
+          p.classList.toggle("active", p.id === "tab-" + target);
+        });
+        if (target === "chart") renderChart();
+      });
+    });
+  }
+
+  function setupForm() {
+    var form = document.getElementById("logForm");
+    var dateInput = document.getElementById("f-date");
+    dateInput.value = todayStr();
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var date = dateInput.value || todayStr();
+      var weight = parseFloat(document.getElementById("f-weight").value);
+      var trained = document.getElementById("f-trained").checked;
+      if (isNaN(weight) || weight <= 0) return;
+      addOrUpdateLog(date, weight, trained);
+      document.getElementById("f-weight").value = "";
+      document.getElementById("f-trained").checked = false;
+      dateInput.value = todayStr();
+      renderAll();
+    });
+  }
+
+  loadState();
+  setupTabs();
+  setupForm();
+  renderAll();
+})();
+</script>
+</body>
+</html>
