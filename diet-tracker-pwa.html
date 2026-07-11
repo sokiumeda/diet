@@ -550,6 +550,30 @@
     line-height:1.9;
   }
 
+  /* ---- welcome (first launch) ---- */
+  .welcome-overlay{ align-items:center; padding:0 16px; }
+  .welcome-card{
+    background:var(--panel);
+    border:1px solid var(--border2);
+    border-radius:16px;
+    padding:24px 20px;
+    width:100%;
+    max-width:320px;
+  }
+  .welcome-text{
+    margin:8px 0 16px;
+    font-size:13px;
+    color:var(--muted);
+    line-height:1.7;
+  }
+  .welcome-error{
+    color:var(--red);
+    font-size:12px;
+    min-height:16px;
+    margin:8px 0 4px;
+  }
+  .welcome-start{ width:100%; margin-top:4px; }
+
   .app-version{
     text-align:center;
     color:var(--mutedDim);
@@ -627,12 +651,30 @@
   </div>
 </div>
 
+<div class="recipe-overlay welcome-overlay" id="welcomeOverlay">
+  <div class="welcome-card">
+    <div class="recipe-time">WELCOME</div>
+    <div class="recipe-title">減量の記録を始めましょう</div>
+    <p class="welcome-text">現在の体重と目標体重を入力してください。今日の体重が最初の記録として保存されます。</p>
+    <div class="field">
+      <label for="w-current">現在の体重 (kg)</label>
+      <input type="number" id="w-current" step="0.1" min="0" placeholder="90.0">
+    </div>
+    <div class="field" style="margin-top:10px;">
+      <label for="w-goal">目標体重 (kg)</label>
+      <input type="number" id="w-goal" step="0.1" min="0" placeholder="65.0">
+    </div>
+    <div class="welcome-error" id="welcomeError"></div>
+    <button type="button" class="btn welcome-start" id="welcomeStart">記録を開始する</button>
+  </div>
+</div>
+
 <script>
 (function(){
   "use strict";
 
   var STORAGE_KEY = "nexra-diet-tracker";
-  var APP_VERSION = "1.3";
+  var APP_VERSION = "1.4";
 
   var PROFILE = {
     heightCm: 176,
@@ -641,6 +683,9 @@
     targetCalories: 1950,
     targetProtein: 170,
   };
+
+  function getStartWeight() { return state.profile ? state.profile.startWeight : PROFILE.startWeight; }
+  function getGoalWeight() { return state.profile ? state.profile.goalWeight : PROFILE.goalWeight; }
 
   var MEALS = {
     breakfast: [
@@ -725,7 +770,7 @@
     return hash % poolSize;
   }
 
-  var state = { logs: [] };
+  var state = { logs: [], profile: null };
 
   function loadState() {
     try {
@@ -733,6 +778,7 @@
       if (raw) {
         var parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.logs)) state.logs = parsed.logs;
+        if (parsed && parsed.profile && typeof parsed.profile.startWeight === "number" && typeof parsed.profile.goalWeight === "number") state.profile = parsed.profile;
       }
     } catch (e) {
       state.logs = [];
@@ -740,7 +786,9 @@
   }
 
   function saveState() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ logs: state.logs }));
+    var data = { logs: state.logs };
+    if (state.profile) data.profile = state.profile;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }
 
   function sortedLogsAsc() {
@@ -792,8 +840,8 @@
   function computeGaugeStats() {
     var logsAsc = sortedLogsAsc();
     var hasLogs = logsAsc.length > 0;
-    var currentWeight = hasLogs ? logsAsc[logsAsc.length - 1].weight : PROFILE.startWeight;
-    var remaining = currentWeight - PROFILE.goalWeight;
+    var currentWeight = hasLogs ? logsAsc[logsAsc.length - 1].weight : getStartWeight();
+    var remaining = currentWeight - getGoalWeight();
 
     var weeklyPace = null;
     if (logsAsc.length >= 2) {
@@ -822,7 +870,7 @@
       }
     }
 
-    var progressPct = ((PROFILE.startWeight - currentWeight) / (PROFILE.startWeight - PROFILE.goalWeight)) * 100;
+    var progressPct = ((getStartWeight() - currentWeight) / (getStartWeight() - getGoalWeight())) * 100;
     progressPct = Math.max(0, Math.min(100, progressPct));
 
     return {
@@ -854,8 +902,8 @@
     }
     var streakText = s.streak + " 日";
 
-    var min = PROFILE.goalWeight;
-    var max = PROFILE.startWeight;
+    var min = getGoalWeight();
+    var max = getStartWeight();
     var span = max - min;
     var ticks = [];
     for (var t = Math.ceil(min / 5) * 5; t <= max; t += 5) {
@@ -880,7 +928,7 @@
       '<div class="gauge-bar-wrap">' +
         '<div class="gauge-bar"><div class="gauge-bar-fill" style="width:' + s.progressPct + '%"></div></div>' +
         '<div class="gauge-ticks">' + ticksHtml + '</div>' +
-        '<div class="gauge-labels"><span class="num">' + PROFILE.goalWeight + 'kg (目標)</span><span class="num">' + PROFILE.startWeight + 'kg (開始)</span></div>' +
+        '<div class="gauge-labels"><span class="num">' + getGoalWeight() + 'kg (目標)</span><span class="num">' + getStartWeight() + 'kg (開始)</span></div>' +
       '</div>' +
       '<div class="stats-row">' +
         '<div class="mini-stat"><div class="label">週間ペース</div><div class="value num">' + paceText + '</div></div>' +
@@ -968,8 +1016,8 @@
     var weights = logsAsc.map(function (l) { return l.weight; });
     var dataMin = Math.min.apply(null, weights);
     var dataMax = Math.max.apply(null, weights);
-    var yMin = Math.min(dataMin, PROFILE.goalWeight, PROFILE.startWeight);
-    var yMax = Math.max(dataMax, PROFILE.goalWeight, PROFILE.startWeight);
+    var yMin = Math.min(dataMin, getGoalWeight(), getStartWeight());
+    var yMax = Math.max(dataMax, getGoalWeight(), getStartWeight());
     var yPad = Math.max((yMax - yMin) * 0.12, 1.5);
     yMin -= yPad;
     yMax += yPad;
@@ -996,7 +1044,7 @@
     ctx.lineTo(padL + plotW, padT + plotH);
     ctx.stroke();
 
-    var goalY = yFor(PROFILE.goalWeight);
+    var goalY = yFor(getGoalWeight());
     ctx.save();
     ctx.strokeStyle = cCyan;
     ctx.lineWidth = 1.5;
@@ -1010,7 +1058,7 @@
     ctx.font = "10px " + getComputedStyle(canvas).fontFamily;
     ctx.font = "10px ui-monospace, monospace";
     ctx.textBaseline = "bottom";
-    ctx.fillText("目標 " + PROFILE.goalWeight + "kg", padL + 4, goalY - 3);
+    ctx.fillText("目標 " + getGoalWeight() + "kg", padL + 4, goalY - 3);
 
     ctx.fillStyle = cMuted;
     ctx.font = "10px ui-monospace, monospace";
@@ -1156,6 +1204,32 @@
     });
   }
 
+  function setupWelcome() {
+    if (state.logs.length > 0) return;
+    var overlay = document.getElementById("welcomeOverlay");
+    overlay.classList.add("active");
+    document.getElementById("welcomeStart").addEventListener("click", function () {
+      var current = parseFloat(document.getElementById("w-current").value);
+      var goal = parseFloat(document.getElementById("w-goal").value);
+      var err = document.getElementById("welcomeError");
+      if (isNaN(current) || current <= 0 || isNaN(goal) || goal <= 0) {
+        err.textContent = "現在の体重と目標体重を入力してください";
+        return;
+      }
+      if (goal >= current) {
+        err.textContent = "目標体重は現在の体重より小さい値にしてください";
+        return;
+      }
+      state.profile = {
+        startWeight: Math.round(current * 10) / 10,
+        goalWeight: Math.round(goal * 10) / 10,
+      };
+      addOrUpdateLog(todayStr(), current, false);
+      overlay.classList.remove("active");
+      renderAll();
+    });
+  }
+
   function renderAll() {
     renderGauge();
     renderHistory();
@@ -1200,6 +1274,7 @@
   setupTabs();
   setupForm();
   setupRecipeModal();
+  setupWelcome();
   document.getElementById("appVersion").textContent = "v" + APP_VERSION;
   renderAll();
 })();
