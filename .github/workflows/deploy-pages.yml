@@ -31,6 +31,9 @@ jobs:
         run: |
           mkdir -p _site
           cp diet-tracker-pwa.html _site/index.html
+          cp manifest.json _site/manifest.json
+          cp sw.js _site/sw.js
+          cp -r icons _site/icons
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
