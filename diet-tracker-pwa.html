@@ -60,17 +60,21 @@
 
   /* ---- gauge / header panel ---- */
   .panel{
-    background:var(--panel);
+    background:linear-gradient(180deg, #141C24, var(--panel));
     border:1px solid var(--border);
-    border-radius:12px;
+    border-radius:14px;
     padding:12px 16px;
     margin-bottom:10px;
+    box-shadow:0 1px 0 rgba(255,255,255,.02) inset, 0 8px 20px -14px rgba(0,0,0,.6);
+  }
+  #gaugePanel.panel{
+    padding:16px 16px 14px;
   }
   .gauge-top{
     display:flex;
     justify-content:space-between;
     align-items:flex-end;
-    margin-bottom:8px;
+    margin-bottom:10px;
     gap:10px;
     flex-wrap:wrap;
   }
@@ -78,12 +82,13 @@
     font-size:11px;
     color:var(--muted);
     letter-spacing:.03em;
-    margin-bottom:2px;
+    margin-bottom:3px;
   }
   .gauge-stat .value{
-    font-size:26px;
+    font-size:32px;
     font-weight:600;
     color:var(--text);
+    letter-spacing:-.01em;
   }
   .gauge-stat .value small{
     font-size:13px;
@@ -91,6 +96,11 @@
     font-weight:400;
   }
   .gauge-stat.accent .value{ color:var(--amber); }
+  .spark-wrap{
+    height:44px;
+    margin:2px 0 12px;
+  }
+  .spark-wrap canvas{ width:100%; height:100%; display:block; }
   .stats-row{
     display:flex;
     flex-direction:column;
@@ -104,9 +114,10 @@
     gap:10px;
     background:#0E141A;
     border:1px solid var(--border);
-    border-radius:8px;
-    padding:7px 12px;
+    border-radius:9px;
+    padding:8px 12px;
     min-width:0;
+    transition:border-color .2s;
   }
   .mini-stat .label{
     font-size:11px;
@@ -122,6 +133,26 @@
     overflow:hidden;
     text-overflow:ellipsis;
   }
+  .value-group{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    min-width:0;
+  }
+  .value-group .value{ flex:0 1 auto; }
+  .pace-badge{
+    flex:0 0 auto;
+    font-size:9px;
+    font-family:var(--sans);
+    padding:2px 7px;
+    border-radius:20px;
+    white-space:nowrap;
+    background:#0B1015;
+    border:1px solid var(--border2);
+    color:var(--muted);
+  }
+  .pace-badge.ok{ color:var(--cyan); border-color:rgba(70,210,192,.35); background:rgba(70,210,192,.12); }
+  .pace-badge.over{ color:var(--red); border-color:rgba(229,83,75,.35); background:rgba(229,83,75,.12); }
 
   .gauge-bar-wrap{ margin-top:4px; }
   .gauge-bar{
@@ -191,7 +222,11 @@
   .tab-btn.active .icon{ filter:none; }
 
   .tab-panel{ display:none; flex-direction:column; gap:10px; }
-  .tab-panel.active{ display:flex; }
+  .tab-panel.active{ display:flex; animation:tabIn .22s ease; }
+  @keyframes tabIn{
+    from{ opacity:0; transform:translateY(6px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
 
   h2.section-title{
     font-size:13px;
@@ -289,14 +324,15 @@
     background:var(--cyan);
     color:#04201C;
     border:none;
-    border-radius:8px;
+    border-radius:9px;
     padding:10px 18px;
     font-family:var(--sans);
     font-size:14px;
     font-weight:600;
     cursor:pointer;
+    transition:transform .12s ease, opacity .12s ease;
   }
-  .btn:active{ opacity:.8; }
+  .btn:active{ opacity:.8; transform:scale(.98); }
   .btn.secondary{
     background:#0E141A;
     color:var(--text);
@@ -372,6 +408,13 @@
     color:var(--mutedDim);
     border:1px solid var(--border2);
   }
+  .macro-badge{
+    font-size:11px;
+    color:var(--amber);
+    font-family:var(--mono);
+    white-space:nowrap;
+    flex:0 0 auto;
+  }
   .history-row .spacer{ flex:1; }
   .del-btn{
     background:none;
@@ -410,6 +453,69 @@
     height:100%;
     display:block;
   }
+
+  /* ---- chart toggle ---- */
+  .chart-toggle{
+    display:flex;
+    gap:6px;
+    background:#0E141A;
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:4px;
+  }
+  .seg-btn{
+    flex:1;
+    background:none;
+    border:none;
+    color:var(--muted);
+    font-family:var(--sans);
+    font-size:12px;
+    font-weight:600;
+    padding:8px 0;
+    border-radius:7px;
+    cursor:pointer;
+    transition:background .15s, color .15s;
+  }
+  .seg-btn.active{
+    background:var(--panel);
+    color:var(--cyan);
+    box-shadow:0 1px 3px rgba(0,0,0,.35);
+  }
+
+  /* ---- today's target ---- */
+  .target-row{ margin-bottom:10px; }
+  .target-row:last-child{ margin-bottom:0; }
+  .target-row-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:5px;
+  }
+  .target-label{
+    font-size:12px;
+    color:var(--muted);
+  }
+  .target-value{
+    font-size:13px;
+    color:var(--text);
+  }
+  .target-value.over{ color:var(--red); }
+  .target-bar{
+    position:relative;
+    height:8px;
+    border-radius:5px;
+    background:#0E141A;
+    border:1px solid var(--border);
+    overflow:hidden;
+  }
+  .target-bar-fill{
+    position:absolute;
+    top:0; left:0; bottom:0;
+    background:linear-gradient(90deg, var(--cyan), var(--amber));
+    border-radius:5px;
+    transition:width .3s ease;
+  }
+  .target-bar-fill.over{ background:var(--red); }
 
   /* ---- meals ---- */
   .meal-card{
@@ -618,6 +724,9 @@
 <div id="app">
   <div class="panel" id="gaugePanel"></div>
 
+  <h2 class="section-title">本日の摂取</h2>
+  <div class="panel" id="todayTargetCard"></div>
+
   <div class="tab-panel active" id="tab-dashboard">
     <h2 class="section-title">記録を追加</h2>
     <div class="panel">
@@ -630,6 +739,14 @@
           <div class="field">
             <label for="f-weight">体重 (kg)</label>
             <input type="number" id="f-weight" step="0.1" min="0" placeholder="0.0" required>
+          </div>
+          <div class="field">
+            <label for="f-calories">摂取カロリー (任意)</label>
+            <input type="number" id="f-calories" step="1" min="0" placeholder="kcal">
+          </div>
+          <div class="field">
+            <label for="f-protein">タンパク質 (任意)</label>
+            <input type="number" id="f-protein" step="1" min="0" placeholder="g">
           </div>
           <div class="form-bottom-row">
             <div class="toggle-field">
@@ -648,6 +765,22 @@
     <h2 class="section-title">履歴</h2>
     <div id="historyList"></div>
 
+    <h2 class="section-title">目標設定</h2>
+    <div class="panel">
+      <div class="form-row">
+        <div class="field">
+          <label for="s-calories">目標カロリー (kcal/日)</label>
+          <input type="number" id="s-calories" step="10" min="0">
+        </div>
+        <div class="field">
+          <label for="s-protein">目標タンパク質 (g/日)</label>
+          <input type="number" id="s-protein" step="1" min="0">
+        </div>
+        <button type="button" class="btn secondary full" id="settingsSaveBtn">保存</button>
+        <div class="data-status" id="settingsStatus"></div>
+      </div>
+    </div>
+
     <h2 class="section-title">データ管理</h2>
     <div class="panel">
       <div class="data-actions">
@@ -661,7 +794,12 @@
   </div>
 
   <div class="tab-panel" id="tab-chart">
-    <h2 class="section-title">体重推移</h2>
+    <h2 class="section-title">推移</h2>
+    <div class="chart-toggle" id="chartToggle">
+      <button class="seg-btn active" data-metric="weight">体重</button>
+      <button class="seg-btn" data-metric="calories">カロリー</button>
+      <button class="seg-btn" data-metric="protein">タンパク質</button>
+    </div>
     <div id="chartArea"></div>
   </div>
 
@@ -715,18 +853,20 @@
   "use strict";
 
   var STORAGE_KEY = "nexra-diet-tracker";
-  var APP_VERSION = "1.5";
+  var APP_VERSION = "2.0";
 
   var PROFILE = {
     heightCm: 176,
     startWeight: 90,
     goalWeight: 65,
-    targetCalories: 1950,
-    targetProtein: 170,
+    targetCalories: 2070,
+    targetProtein: 190,
   };
 
   function getStartWeight() { return state.profile ? state.profile.startWeight : PROFILE.startWeight; }
   function getGoalWeight() { return state.profile ? state.profile.goalWeight : PROFILE.goalWeight; }
+  function getTargetCalories() { return (state.profile && typeof state.profile.targetCalories === "number") ? state.profile.targetCalories : PROFILE.targetCalories; }
+  function getTargetProtein() { return (state.profile && typeof state.profile.targetProtein === "number") ? state.profile.targetProtein : PROFILE.targetProtein; }
 
   var MEALS = {
     breakfast: [
@@ -846,9 +986,18 @@
     return y + "-" + m + "-" + day;
   }
 
-  function addOrUpdateLog(date, weight, trained) {
+  function toPositiveIntOrUndef(v) {
+    var n = parseFloat(v);
+    return (!isNaN(n) && n > 0) ? Math.round(n) : undefined;
+  }
+
+  function addOrUpdateLog(date, weight, trained, calories, protein) {
     var idx = state.logs.findIndex(function (l) { return l.date === date; });
     var entry = { date: date, weight: Math.round(weight * 10) / 10, trained: !!trained };
+    var cal = toPositiveIntOrUndef(calories);
+    var pro = toPositiveIntOrUndef(protein);
+    if (cal !== undefined) entry.calories = cal;
+    if (pro !== undefined) entry.protein = pro;
     if (idx >= 0) state.logs[idx] = entry;
     else state.logs.push(entry);
     saveState();
@@ -925,11 +1074,76 @@
     };
   }
 
+  function paceEvaluation(weeklyPace, currentWeight) {
+    if (weeklyPace === null) return null;
+    var minPace = currentWeight * 0.008;
+    var maxPace = currentWeight * 0.010;
+    if (weeklyPace < 0) return { text: "増加中", cls: "over" };
+    if (weeklyPace > maxPace * 1.5) return { text: "速すぎ注意", cls: "over" };
+    if (weeklyPace < minPace * 0.7) return { text: "ペースやや遅め", cls: "" };
+    return { text: "順調", cls: "ok" };
+  }
+
+  function drawSparkline(canvas, values) {
+    var wrap = canvas.parentElement;
+    var cssW = wrap.clientWidth;
+    var cssH = wrap.clientHeight;
+    if (cssW <= 0 || cssH <= 0) return;
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    var min = Math.min.apply(null, values);
+    var max = Math.max.apply(null, values);
+    if (min === max) { min -= 1; max += 1; }
+    var pad = 4;
+
+    function xFor(i) { return values.length === 1 ? cssW / 2 : pad + (i / (values.length - 1)) * (cssW - pad * 2); }
+    function yFor(v) { return pad + (1 - (v - min) / (max - min)) * (cssH - pad * 2); }
+
+    var styles = getComputedStyle(document.documentElement);
+    var cCyan = styles.getPropertyValue("--cyan").trim() || "#46D2C0";
+
+    var grad = ctx.createLinearGradient(0, 0, 0, cssH);
+    grad.addColorStop(0, "rgba(70,210,192,.20)");
+    grad.addColorStop(1, "rgba(70,210,192,0)");
+    ctx.beginPath();
+    values.forEach(function (v, i) {
+      var x = xFor(i), y = yFor(v);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.lineTo(xFor(values.length - 1), cssH - pad);
+    ctx.lineTo(xFor(0), cssH - pad);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.strokeStyle = cCyan;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    values.forEach(function (v, i) {
+      var x = xFor(i), y = yFor(v);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  var sparkResizeBound = false;
+
   function renderGauge() {
     var s = computeGaugeStats();
     var el = document.getElementById("gaugePanel");
+    var logsAsc = sortedLogsAsc();
 
     var paceText = s.weeklyPace === null ? "—" : (s.weeklyPace >= 0 ? "-" : "+") + fmt1(Math.abs(s.weeklyPace)) + "kg/週";
+    var paceEval = paceEvaluation(s.weeklyPace, s.currentWeight);
     var etaText = "—";
     if (s.remaining <= 0 && s.hasLogs) {
       etaText = "達成!";
@@ -955,6 +1169,8 @@
       return '<span class="tick" style="left:' + pct + '%">' + tv + '</span>';
     }).join("");
 
+    var sparkHtml = logsAsc.length >= 2 ? '<div class="spark-wrap"><canvas id="weightSpark"></canvas></div>' : '';
+
     el.innerHTML =
       '<div class="gauge-top">' +
         '<div class="gauge-stat">' +
@@ -966,16 +1182,30 @@
           '<div class="value num">' + fmt1(Math.max(s.remaining, 0)) + '<small> kg</small></div>' +
         '</div>' +
       '</div>' +
+      sparkHtml +
       '<div class="gauge-bar-wrap">' +
         '<div class="gauge-bar"><div class="gauge-bar-fill" style="width:' + s.progressPct + '%"></div></div>' +
         '<div class="gauge-ticks">' + ticksHtml + '</div>' +
         '<div class="gauge-labels"><span class="num">' + getGoalWeight() + 'kg (目標)</span><span class="num">' + getStartWeight() + 'kg (開始)</span></div>' +
       '</div>' +
       '<div class="stats-row">' +
-        '<div class="mini-stat"><div class="label">週間ペース</div><div class="value num">' + paceText + '</div></div>' +
+        '<div class="mini-stat"><div class="label">週間ペース</div><div class="value-group"><span class="value num">' + paceText + '</span>' + (paceEval ? '<span class="pace-badge ' + paceEval.cls + '">' + paceEval.text + '</span>' : '') + '</div></div>' +
         '<div class="mini-stat"><div class="label">到達目安</div><div class="value num">' + etaText + '</div></div>' +
         '<div class="mini-stat"><div class="label">連続トレ日数</div><div class="value num">' + streakText + '</div></div>' +
       '</div>';
+
+    if (logsAsc.length >= 2) {
+      var sparkCanvas = document.getElementById("weightSpark");
+      drawSparkline(sparkCanvas, logsAsc.slice(-14).map(function (l) { return l.weight; }));
+      if (!sparkResizeBound) {
+        sparkResizeBound = true;
+        window.addEventListener("resize", function () {
+          var c = document.getElementById("weightSpark");
+          var logs = sortedLogsAsc();
+          if (c && logs.length >= 2) drawSparkline(c, logs.slice(-14).map(function (l) { return l.weight; }));
+        });
+      }
+    }
   }
 
   function renderHistory() {
@@ -989,11 +1219,16 @@
       var badge = l.trained
         ? '<span class="trained-badge yes">&#9989; ジム</span>'
         : '<span class="trained-badge no">&#8212;</span>';
+      var macroParts = [];
+      if (typeof l.calories === "number") macroParts.push(l.calories + "kcal");
+      if (typeof l.protein === "number") macroParts.push(l.protein + "g");
+      var macroBadge = macroParts.length ? '<span class="macro-badge">' + macroParts.join(" / ") + '</span>' : "";
       return (
         '<div class="history-row" data-date="' + l.date + '">' +
           '<span class="date num">' + l.date + '</span>' +
           '<span class="weight num">' + fmt1(l.weight) + 'kg</span>' +
           badge +
+          macroBadge +
           '<span class="spacer"></span>' +
           '<button class="del-btn" data-del="' + l.date + '" aria-label="削除">&times;</button>' +
         '</div>'
@@ -1011,14 +1246,51 @@
     });
   }
 
+  function targetBarHtml(label, actual, target, unit) {
+    var pct = target > 0 ? Math.max(0, Math.min(100, (actual / target) * 100)) : 0;
+    var over = actual > target;
+    return (
+      '<div class="target-row">' +
+        '<div class="target-row-top"><span class="target-label">' + label + '</span><span class="target-value num' + (over ? ' over' : '') + '">' + actual + ' / ' + target + unit + '</span></div>' +
+        '<div class="target-bar"><div class="target-bar-fill' + (over ? ' over' : '') + '" style="width:' + pct + '%"></div></div>' +
+      '</div>'
+    );
+  }
+
+  function renderTodayTargets() {
+    var el = document.getElementById("todayTargetCard");
+    var today = todayStr();
+    var log = state.logs.find(function (l) { return l.date === today; });
+    var hasCalories = log && typeof log.calories === "number";
+    var hasProtein = log && typeof log.protein === "number";
+
+    if (!log || (!hasCalories && !hasProtein)) {
+      el.innerHTML = '<div class="empty-state">本日のカロリー・タンパク質はまだ記録されていません。「記録を追加」から入力できます。</div>';
+      return;
+    }
+
+    var rows = "";
+    if (hasCalories) rows += targetBarHtml("カロリー", log.calories, getTargetCalories(), "kcal");
+    if (hasProtein) rows += targetBarHtml("タンパク質", log.protein, getTargetProtein(), "g");
+    el.innerHTML = rows;
+  }
+
+  var currentChartMetric = "weight";
   var chartResizeBound = false;
+
+  function metricLogs(metric) {
+    return sortedLogsAsc().filter(function (l) { return typeof l[metric] === "number"; });
+  }
 
   function renderChart() {
     var area = document.getElementById("chartArea");
-    var logsAsc = sortedLogsAsc();
+    var logs = metricLogs(currentChartMetric);
 
-    if (logsAsc.length < 2) {
-      area.innerHTML = '<div class="empty-state">記録が2件以上になるとグラフが表示されます。</div>';
+    if (logs.length < 2) {
+      var msg = currentChartMetric === "weight"
+        ? "記録が2件以上になるとグラフが表示されます。"
+        : "この項目の記録が2件以上になるとグラフが表示されます。";
+      area.innerHTML = '<div class="empty-state">' + msg + '</div>';
       return;
     }
 
@@ -1027,19 +1299,30 @@
     }
 
     var canvas = document.getElementById("weightChart");
-    drawChart(canvas, logsAsc);
+    drawChart(canvas, logs, currentChartMetric);
 
     if (!chartResizeBound) {
       chartResizeBound = true;
       window.addEventListener("resize", function () {
-        var activeLogs = sortedLogsAsc();
+        var activeLogs = metricLogs(currentChartMetric);
         var c = document.getElementById("weightChart");
-        if (c && activeLogs.length >= 2) drawChart(c, activeLogs);
+        if (c && activeLogs.length >= 2) drawChart(c, activeLogs, currentChartMetric);
       });
     }
   }
 
-  function drawChart(canvas, logsAsc) {
+  function setupChartToggle() {
+    var toggle = document.getElementById("chartToggle");
+    toggle.addEventListener("click", function (e) {
+      var btn = e.target.closest ? e.target.closest("[data-metric]") : null;
+      if (!btn) return;
+      currentChartMetric = btn.getAttribute("data-metric");
+      toggle.querySelectorAll(".seg-btn").forEach(function (b) { b.classList.toggle("active", b === btn); });
+      renderChart();
+    });
+  }
+
+  function drawChart(canvas, logsAsc, metric) {
     var wrap = canvas.parentElement;
     var cssW = wrap.clientWidth;
     var cssH = wrap.clientHeight;
@@ -1050,16 +1333,30 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
 
+    var accessor = metric === "calories" ? function (l) { return l.calories; }
+      : metric === "protein" ? function (l) { return l.protein; }
+      : function (l) { return l.weight; };
+    var targetVal = metric === "calories" ? getTargetCalories()
+      : metric === "protein" ? getTargetProtein()
+      : getGoalWeight();
+    var unit = metric === "calories" ? "kcal" : metric === "protein" ? "g" : "kg";
+    var seriesLabel = metric === "calories" ? "カロリー" : metric === "protein" ? "タンパク質" : "体重";
+    var formatVal = metric === "weight" ? fmt1 : function (v) { return String(Math.round(v)); };
+
     var padL = 40, padR = 14, padT = 18, padB = 26;
     var plotW = cssW - padL - padR;
     var plotH = cssH - padT - padB;
 
-    var weights = logsAsc.map(function (l) { return l.weight; });
-    var dataMin = Math.min.apply(null, weights);
-    var dataMax = Math.max.apply(null, weights);
-    var yMin = Math.min(dataMin, getGoalWeight(), getStartWeight());
-    var yMax = Math.max(dataMax, getGoalWeight(), getStartWeight());
-    var yPad = Math.max((yMax - yMin) * 0.12, 1.5);
+    var values = logsAsc.map(accessor);
+    var dataMin = Math.min.apply(null, values);
+    var dataMax = Math.max.apply(null, values);
+    var yMin = Math.min(dataMin, targetVal);
+    var yMax = Math.max(dataMax, targetVal);
+    if (metric === "weight") {
+      yMin = Math.min(yMin, getStartWeight());
+      yMax = Math.max(yMax, getStartWeight());
+    }
+    var yPad = Math.max((yMax - yMin) * 0.12, metric === "weight" ? 1.5 : 5);
     yMin -= yPad;
     yMax += yPad;
 
@@ -1085,7 +1382,7 @@
     ctx.lineTo(padL + plotW, padT + plotH);
     ctx.stroke();
 
-    var goalY = yFor(getGoalWeight());
+    var goalY = yFor(targetVal);
     ctx.save();
     ctx.strokeStyle = cCyan;
     ctx.lineWidth = 1.5;
@@ -1099,7 +1396,7 @@
     ctx.font = "10px " + getComputedStyle(canvas).fontFamily;
     ctx.font = "10px ui-monospace, monospace";
     ctx.textBaseline = "bottom";
-    ctx.fillText("目標 " + getGoalWeight() + "kg", padL + 4, goalY - 3);
+    ctx.fillText("目標 " + formatVal(targetVal) + unit, padL + 4, goalY - 3);
 
     ctx.fillStyle = cMuted;
     ctx.font = "10px ui-monospace, monospace";
@@ -1109,7 +1406,7 @@
     for (var g = 0; g <= ySteps; g++) {
       var val = yMin + (g / ySteps) * (yMax - yMin);
       var yy = yFor(val);
-      ctx.fillText(val.toFixed(1), padL - 6, yy);
+      ctx.fillText(formatVal(val), padL - 6, yy);
     }
     ctx.textAlign = "left";
 
@@ -1132,7 +1429,7 @@
     ctx.lineCap = "round";
     ctx.beginPath();
     logsAsc.forEach(function (l, i) {
-      var x = xFor(i), y = yFor(l.weight);
+      var x = xFor(i), y = yFor(accessor(l));
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
@@ -1140,7 +1437,7 @@
 
     ctx.fillStyle = cAmber;
     logsAsc.forEach(function (l, i) {
-      var x = xFor(i), y = yFor(l.weight);
+      var x = xFor(i), y = yFor(accessor(l));
       ctx.beginPath();
       ctx.arc(x, y, 2.5, 0, Math.PI * 2);
       ctx.fill();
@@ -1150,7 +1447,7 @@
     ctx.font = "10px ui-monospace, monospace";
     ctx.textAlign = "right";
     ctx.textBaseline = "bottom";
-    ctx.fillText("体重", padL + plotW, padT + 10);
+    ctx.fillText(seriesLabel, padL + plotW, padT + 10);
   }
 
   function renderMeals() {
@@ -1168,7 +1465,7 @@
 
     var totalKcal = MEAL_TIME_ORDER.reduce(function (sum, mt) { return sum + picks[mt].kcal; }, 0);
     var totalProtein = MEAL_TIME_ORDER.reduce(function (sum, mt) { return sum + picks[mt].protein; }, 0);
-    var snackBudget = PROFILE.targetCalories - totalKcal;
+    var snackBudget = getTargetCalories() - totalKcal;
 
     var cardsHtml = MEAL_TIME_ORDER.map(function (mt) {
       var m = picks[mt];
@@ -1192,7 +1489,7 @@
       '<div class="summary-card">' +
         '<div class="item"><div class="label">合計 kcal</div><div class="value num">' + totalKcal + '</div></div>' +
         '<div class="item"><div class="label">合計 protein</div><div class="value num">' + totalProtein + 'g</div></div>' +
-        '<div class="item"><div class="label">間食枠 (目標 ' + PROFILE.targetCalories + 'kcal)</div><div class="value num ' + snackClass + '">' + snackText + '</div></div>' +
+        '<div class="item"><div class="label">間食枠 (目標 ' + getTargetCalories() + 'kcal)</div><div class="value num ' + snackClass + '">' + snackText + '</div></div>' +
       '</div>';
 
     var allMenuHtml = '<details class="all-menu"><summary>全メニュー一覧を見る</summary>' +
@@ -1273,6 +1570,7 @@
 
   function renderAll() {
     renderGauge();
+    renderTodayTargets();
     renderHistory();
     renderChart();
     renderMeals();
@@ -1302,11 +1600,44 @@
       var date = dateInput.value || todayStr();
       var weight = parseFloat(document.getElementById("f-weight").value);
       var trained = document.getElementById("f-trained").checked;
+      var calories = document.getElementById("f-calories").value;
+      var protein = document.getElementById("f-protein").value;
       if (isNaN(weight) || weight <= 0) return;
-      addOrUpdateLog(date, weight, trained);
+      addOrUpdateLog(date, weight, trained, calories, protein);
       document.getElementById("f-weight").value = "";
+      document.getElementById("f-calories").value = "";
+      document.getElementById("f-protein").value = "";
       document.getElementById("f-trained").checked = false;
       dateInput.value = todayStr();
+      renderAll();
+    });
+  }
+
+  function syncSettingsInputs() {
+    document.getElementById("s-calories").value = getTargetCalories();
+    document.getElementById("s-protein").value = getTargetProtein();
+  }
+
+  function setupSettings() {
+    var calInput = document.getElementById("s-calories");
+    var proInput = document.getElementById("s-protein");
+    syncSettingsInputs();
+
+    document.getElementById("settingsSaveBtn").addEventListener("click", function () {
+      var cal = parseFloat(calInput.value);
+      var pro = parseFloat(proInput.value);
+      var statusEl = document.getElementById("settingsStatus");
+      if (isNaN(cal) || cal <= 0 || isNaN(pro) || pro <= 0) {
+        statusEl.textContent = "正しい数値を入力してください";
+        statusEl.className = "data-status err";
+        return;
+      }
+      if (!state.profile) state.profile = { startWeight: getStartWeight(), goalWeight: getGoalWeight() };
+      state.profile.targetCalories = Math.round(cal);
+      state.profile.targetProtein = Math.round(pro);
+      saveState();
+      statusEl.textContent = "保存しました";
+      statusEl.className = "data-status ok";
       renderAll();
     });
   }
@@ -1323,6 +1654,8 @@
       if (!l || typeof l !== "object") return "記録データの形式が正しくありません";
       if (!isValidDateStr(l.date)) return "記録に不正な日付があります (" + i + "件目)";
       if (typeof l.weight !== "number" || isNaN(l.weight)) return "記録に不正な体重があります (" + i + "件目)";
+      if (l.calories !== undefined && (typeof l.calories !== "number" || isNaN(l.calories))) return "記録に不正なカロリーがあります (" + i + "件目)";
+      if (l.protein !== undefined && (typeof l.protein !== "number" || isNaN(l.protein))) return "記録に不正なタンパク質量があります (" + i + "件目)";
     }
     if (data.profile !== undefined && data.profile !== null) {
       if (typeof data.profile !== "object" ||
@@ -1330,6 +1663,8 @@
           typeof data.profile.goalWeight !== "number") {
         return "profileの形式が正しくありません";
       }
+      if (data.profile.targetCalories !== undefined && typeof data.profile.targetCalories !== "number") return "profileの目標カロリーが不正です";
+      if (data.profile.targetProtein !== undefined && typeof data.profile.targetProtein !== "number") return "profileの目標タンパク質が不正です";
     }
     return null;
   }
@@ -1381,16 +1716,22 @@
         return;
       }
       state.logs = parsed.logs.map(function (l) {
-        return { date: l.date, weight: Math.round(l.weight * 10) / 10, trained: !!l.trained };
+        var entry = { date: l.date, weight: Math.round(l.weight * 10) / 10, trained: !!l.trained };
+        if (typeof l.calories === "number") entry.calories = Math.round(l.calories);
+        if (typeof l.protein === "number") entry.protein = Math.round(l.protein);
+        return entry;
       });
       if (parsed.profile) {
         state.profile = {
           startWeight: Math.round(parsed.profile.startWeight * 10) / 10,
           goalWeight: Math.round(parsed.profile.goalWeight * 10) / 10,
         };
+        if (typeof parsed.profile.targetCalories === "number") state.profile.targetCalories = Math.round(parsed.profile.targetCalories);
+        if (typeof parsed.profile.targetProtein === "number") state.profile.targetProtein = Math.round(parsed.profile.targetProtein);
       }
       saveState();
       renderAll();
+      syncSettingsInputs();
       showDataStatus("インポートしました (" + state.logs.length + "件)", false);
     };
     reader.onerror = function () {
@@ -1429,6 +1770,8 @@
   loadState();
   setupTabs();
   setupForm();
+  setupSettings();
+  setupChartToggle();
   setupRecipeModal();
   setupWelcome();
   setupDataManagement();
