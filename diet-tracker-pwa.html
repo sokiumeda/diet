@@ -393,6 +393,7 @@
     border:1px solid var(--border);
     border-radius:8px;
     padding:9px 12px;
+    cursor:pointer;
   }
   .history-row .date{
     font-family:var(--mono);
@@ -443,6 +444,11 @@
     cursor:pointer;
   }
   .del-btn:active{ color:var(--red); border-color:var(--red); }
+
+  .history-meals{padding:6px 0 10px 8px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .history-meal-row{display:flex;gap:8px;font-size:12px;color:#b9bec7;padding:2px 0}
+  .history-meal-row .hm-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .history-meal-row.empty{color:#6b7078}
 
   .empty-state{
     color:var(--muted);
@@ -1387,6 +1393,20 @@
     T.ok(validateImportedData({ schemaVersion: 2, logs: [
       { date: "2026-09-01", meals: [{ id: "m_1", time: "constructor", name: "A", kcal: 100 }] }
     ] }), "'constructor' as a meal time is rejected, not treated as a valid bucket");
+  });
+
+  SELFTEST.add("metricLogs derives calories and protein from meals", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-09-01", weight: 72, meals: [{ id: "m_1", time: "lunch", name: "A", kcal: 500, protein: 40 }] },
+      { date: "2026-09-02", weight: 71, meals: [] }
+    ];
+    var cal = metricLogs("calories");
+    T.eq(cal.length, 1, "days without meals are skipped");
+    T.eq(cal[0].calories, 500, "derived from meals");
+    T.eq(metricLogs("protein")[0].protein, 40, "protein derived");
+    T.eq(metricLogs("weight").length, 2, "weight series unchanged");
+    state.logs = saved;
   });
 
   var PROFILE = {
@@ -2620,6 +2640,15 @@
           macroBadge +
           '<span class="spacer"></span>' +
           '<button class="del-btn" data-del="' + l.date + '" aria-label="削除">&times;</button>' +
+        '</div>' +
+        '<div class="history-meals" data-meals-for="' + l.date + '" hidden>' +
+          (hasMeals(l)
+            ? l.meals.map(function (m) {
+                return '<div class="history-meal-row"><span>' + LOG_MEAL_TIME_LABEL[m.time] + '</span>' +
+                  '<span class="hm-name">' + escapeHtml(m.name) + '</span>' +
+                  '<span class="num">' + m.kcal + 'kcal' + (typeof m.protein === "number" ? " / P" + m.protein + "g" : "") + '</span></div>';
+              }).join("")
+            : '<div class="history-meal-row empty">食事の記録はありません</div>') +
         '</div>'
       );
     }).join("");
@@ -2631,6 +2660,14 @@
         if (!window.confirm(dateStr + " の記録を削除しますか?")) return;
         deleteLog(dateStr);
         renderAll();
+      });
+    });
+
+    el.querySelectorAll(".history-row").forEach(function (row) {
+      row.addEventListener("click", function (e) {
+        if (e.target.closest && e.target.closest("[data-del]")) return;
+        var panel = el.querySelector('[data-meals-for="' + row.getAttribute("data-date") + '"]');
+        if (panel) panel.hidden = !panel.hidden;
       });
     });
   }
@@ -2695,7 +2732,15 @@
   var chartResizeBound = false;
 
   function metricLogs(metric) {
-    return sortedLogsAsc().filter(function (l) { return typeof l[metric] === "number"; });
+    if (metric === "weight") {
+      return sortedLogsAsc().filter(function (l) { return typeof l.weight === "number"; });
+    }
+    return sortedLogsAsc().filter(hasMeals).map(function (l) {
+      var copy = { date: l.date };
+      copy.calories = dayKcal(l);
+      copy.protein = dayProtein(l);
+      return copy;
+    });
   }
 
   function renderChart() {
