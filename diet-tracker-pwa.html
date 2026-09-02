@@ -1057,6 +1057,29 @@
     T.throws(function () { T.eq(1, 2); }, "failing assertion throws");
   });
 
+  SELFTEST.add("dayKcal sums meal calories", function () {
+    T.eq(dayKcal({ meals: [{ kcal: 420 }, { kcal: 340 }] }), 760, "sum");
+    T.eq(dayKcal({ meals: [] }), 0, "empty");
+    T.eq(dayKcal({}), 0, "no meals key");
+  });
+
+  SELFTEST.add("dayProtein treats missing protein as zero", function () {
+    T.eq(dayProtein({ meals: [{ kcal: 420, protein: 45 }, { kcal: 200 }] }), 45, "missing protein counts as 0");
+  });
+
+  SELFTEST.add("hasMeals distinguishes unrecorded from zero", function () {
+    T.eq(hasMeals({ meals: [] }), false, "empty means unrecorded");
+    T.eq(hasMeals({}), false, "absent means unrecorded");
+    T.eq(hasMeals({ meals: [{ kcal: 0 }] }), true, "a zero-kcal meal is still a record");
+  });
+
+  SELFTEST.add("defaultMealTime picks bucket from clock", function () {
+    T.eq(defaultMealTime(new Date("2026-09-03T08:00:00")), "breakfast", "morning");
+    T.eq(defaultMealTime(new Date("2026-09-03T12:30:00")), "lunch", "midday");
+    T.eq(defaultMealTime(new Date("2026-09-03T19:00:00")), "dinner", "evening");
+    T.eq(defaultMealTime(new Date("2026-09-03T23:00:00")), "snack", "late night");
+  });
+
   var PROFILE = {
     heightCm: 176,
     startWeight: 90,
@@ -1859,6 +1882,32 @@
 
   var MEAL_TIME_LABEL = { breakfast: "朝食", lunch: "昼食", dinner: "夕食" };
   var MEAL_TIME_ORDER = ["breakfast", "lunch", "dinner"];
+
+  var LOG_MEAL_TIME_LABEL = { breakfast: "朝食", lunch: "昼食", dinner: "夕食", snack: "間食", other: "その他" };
+  var LOG_MEAL_TIME_ORDER = ["breakfast", "lunch", "dinner", "snack", "other"];
+
+  function hasMeals(log) {
+    return !!(log && Array.isArray(log.meals) && log.meals.length > 0);
+  }
+
+  function dayKcal(log) {
+    if (!log || !Array.isArray(log.meals)) return 0;
+    return log.meals.reduce(function (s, m) { return s + (typeof m.kcal === "number" ? m.kcal : 0); }, 0);
+  }
+
+  function dayProtein(log) {
+    if (!log || !Array.isArray(log.meals)) return 0;
+    return log.meals.reduce(function (s, m) { return s + (typeof m.protein === "number" ? m.protein : 0); }, 0);
+  }
+
+  function defaultMealTime(date) {
+    var d = date || new Date();
+    var mins = d.getHours() * 60 + d.getMinutes();
+    if (mins < 10 * 60 + 30) return "breakfast";
+    if (mins < 15 * 60) return "lunch";
+    if (mins < 21 * 60) return "dinner";
+    return "snack";
+  }
 
   // deterministic per-date hash so "today's menu" is reproducible / stable across reloads
   function dailyIndex(dateStr, mealTime, poolSize) {
