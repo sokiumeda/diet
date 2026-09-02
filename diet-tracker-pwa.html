@@ -1010,6 +1010,53 @@
   var STORAGE_KEY = "nexra-diet-tracker";
   var APP_VERSION = "2.0";
 
+  // ---- self-test harness (activated by ?selftest=1) ----
+  var T = {
+    eq: function (a, b, msg) {
+      if (a !== b) throw new Error((msg || "eq") + ": expected " + JSON.stringify(b) + " but got " + JSON.stringify(a));
+    },
+    deepEq: function (a, b, msg) {
+      var sa = JSON.stringify(a), sb = JSON.stringify(b);
+      if (sa !== sb) throw new Error((msg || "deepEq") + ": expected " + sb + " but got " + sa);
+    },
+    ok: function (cond, msg) {
+      if (!cond) throw new Error((msg || "ok") + ": expected truthy");
+    },
+    throws: function (fn, msg) {
+      var threw = false;
+      try { fn(); } catch (e) { threw = true; }
+      if (!threw) throw new Error((msg || "throws") + ": expected function to throw");
+    }
+  };
+
+  var SELFTEST = {
+    cases: [],
+    add: function (name, fn) { SELFTEST.cases.push({ name: name, fn: fn }); },
+    run: function () {
+      var passed = 0, failed = 0, rows = "";
+      SELFTEST.cases.forEach(function (c) {
+        var ok = true, err = "";
+        try { c.fn(); } catch (e) { ok = false; err = e.message; }
+        if (ok) { passed++; } else { failed++; }
+        rows += '<div style="padding:6px 10px;border-bottom:1px solid #333;color:' +
+          (ok ? "#7ddb7d" : "#ff6b6b") + '">' + (ok ? "PASS" : "FAIL") + " — " + c.name +
+          (ok ? "" : '<div style="color:#ffb4b4;font-size:12px;margin-top:4px">' + err + "</div>") + "</div>";
+      });
+      document.body.innerHTML =
+        '<div style="font-family:monospace;background:#111;color:#eee;min-height:100vh;padding:16px">' +
+        '<h1 style="font-size:18px">selftest: ' + passed + " passed, " + failed + " failed</h1>" +
+        rows + "</div>";
+      document.title = (failed === 0 ? "PASS" : "FAIL") + " selftest (" + passed + "/" + (passed + failed) + ")";
+      return failed === 0;
+    }
+  };
+
+  // Dummy test to verify harness works
+  SELFTEST.add("harness works", function () {
+    T.eq(1 + 1, 2, "arithmetic");
+    T.throws(function () { T.eq(1, 2); }, "failing assertion throws");
+  });
+
   var PROFILE = {
     heightCm: 176,
     startWeight: 90,
@@ -3104,6 +3151,11 @@
     // don't rely on it exclusively
     if (document.readyState === "complete") register();
     else window.addEventListener("load", register);
+  }
+
+  if (location.search.indexOf("selftest=1") >= 0) {
+    SELFTEST.run();
+    return;
   }
 
   loadState();
