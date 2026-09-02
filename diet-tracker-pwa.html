@@ -1275,6 +1275,35 @@
     state.foods = saved;
   });
 
+  SELFTEST.add("import accepts v1 payloads", function () {
+    T.eq(validateImportedData({ logs: [{ date: "2026-09-01", weight: 72, calories: 1200 }] }), null, "v1 ok");
+  });
+
+  SELFTEST.add("import accepts v2 payloads including weightless days", function () {
+    T.eq(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", trained: false, meals: [{ id: "m_1", time: "lunch", name: "A", kcal: 100 }] }
+    ], foods: [] }), null, "weightless day accepted");
+  });
+
+  SELFTEST.add("import rejects malformed data", function () {
+    T.ok(validateImportedData({ logs: [{ date: "bad", weight: 72 }] }), "bad date rejected");
+    T.ok(validateImportedData({ logs: [{ date: "2026-09-01", weight: "72" }] }), "non-numeric weight rejected");
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [{ date: "2026-09-01", meals: "nope" }] }), "meals must be an array");
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ id: "m_1", time: "brunch", name: "A", kcal: 100 }] }
+    ]}), "unknown meal time rejected");
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ id: "m_1", time: "lunch", name: "A", kcal: "100" }] }
+    ]}), "non-numeric kcal rejected");
+  });
+
+  SELFTEST.add("import round-trips through migration", function () {
+    var v1 = { logs: [{ date: "2026-09-01", weight: 72, calories: 1200, protein: 90 }] };
+    var migrated = migrateToV2(v1);
+    T.eq(validateImportedData(migrated), null, "migrated payload validates");
+    T.eq(dayKcal(migrated.logs[0]), 1200, "totals survive");
+  });
+
   var PROFILE = {
     heightCm: 176,
     startWeight: 90,
@@ -3402,9 +3431,29 @@
       var l = data.logs[i];
       if (!l || typeof l !== "object") return "記録データの形式が正しくありません";
       if (!isValidDateStr(l.date)) return "記録に不正な日付があります (" + i + "件目)";
-      if (typeof l.weight !== "number" || isNaN(l.weight)) return "記録に不正な体重があります (" + i + "件目)";
+      if (l.weight !== undefined && (typeof l.weight !== "number" || isNaN(l.weight))) return "記録に不正な体重があります (" + i + "件目)";
       if (l.calories !== undefined && (typeof l.calories !== "number" || isNaN(l.calories))) return "記録に不正なカロリーがあります (" + i + "件目)";
       if (l.protein !== undefined && (typeof l.protein !== "number" || isNaN(l.protein))) return "記録に不正なタンパク質量があります (" + i + "件目)";
+      if (l.meals !== undefined) {
+        if (!Array.isArray(l.meals)) return "記録の食事データが配列ではありません (" + i + "件目)";
+        for (var j = 0; j < l.meals.length; j++) {
+          var m = l.meals[j];
+          if (!m || typeof m !== "object") return "食事データの形式が正しくありません (" + i + "件目)";
+          if (!LOG_MEAL_TIME_LABEL[m.time]) return "食事データに不正な食事帯があります (" + i + "件目)";
+          if (typeof m.name !== "string") return "食事データに不正な名前があります (" + i + "件目)";
+          if (typeof m.kcal !== "number" || isNaN(m.kcal)) return "食事データに不正なカロリーがあります (" + i + "件目)";
+          if (m.protein !== undefined && (typeof m.protein !== "number" || isNaN(m.protein))) return "食事データに不正なタンパク質量があります (" + i + "件目)";
+        }
+      }
+    }
+    if (data.foods !== undefined) {
+      if (!Array.isArray(data.foods)) return "foodsの形式が正しくありません";
+      for (var k = 0; k < data.foods.length; k++) {
+        var f = data.foods[k];
+        if (!f || typeof f !== "object" || typeof f.name !== "string") return "よく食べるものの形式が正しくありません (" + k + "件目)";
+        if (typeof f.kcal !== "number" || isNaN(f.kcal)) return "よく食べるもののカロリーが不正です (" + k + "件目)";
+        if (f.protein !== undefined && (typeof f.protein !== "number" || isNaN(f.protein))) return "よく食べるもののタンパク質量が不正です (" + k + "件目)";
+      }
     }
     if (data.profile !== undefined && data.profile !== null) {
       if (typeof data.profile !== "object" ||
@@ -3425,7 +3474,7 @@
   }
 
   function exportData() {
-    var data = { logs: state.logs };
+    var data = { schemaVersion: 2, logs: state.logs, foods: state.foods };
     if (state.profile) data.profile = state.profile;
     data.exportedAt = new Date().toISOString();
     data.appVersion = APP_VERSION;
@@ -3464,20 +3513,10 @@
         showDataStatus("インポートをキャンセルしました", false);
         return;
       }
-      state.logs = parsed.logs.map(function (l) {
-        var entry = { date: l.date, weight: Math.round(l.weight * 10) / 10, trained: !!l.trained };
-        if (typeof l.calories === "number") entry.calories = Math.round(l.calories);
-        if (typeof l.protein === "number") entry.protein = Math.round(l.protein);
-        return entry;
-      });
-      if (parsed.profile) {
-        state.profile = {
-          startWeight: Math.round(parsed.profile.startWeight * 10) / 10,
-          goalWeight: Math.round(parsed.profile.goalWeight * 10) / 10,
-        };
-        if (typeof parsed.profile.targetCalories === "number") state.profile.targetCalories = Math.round(parsed.profile.targetCalories);
-        if (typeof parsed.profile.targetProtein === "number") state.profile.targetProtein = Math.round(parsed.profile.targetProtein);
-      }
+      var incoming = migrateToV2(parsed);
+      state.logs = incoming.logs;
+      state.foods = Array.isArray(incoming.foods) ? incoming.foods : [];
+      if (incoming.profile) state.profile = incoming.profile;
       saveState();
       renderAll();
       syncSettingsInputs();
