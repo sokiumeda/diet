@@ -1217,6 +1217,64 @@
     state.logs = saved;
   });
 
+  SELFTEST.add("addMeal appends to the right day and returns an id", function () {
+    var saved = state.logs; state.logs = [];
+    var realSave = saveState; saveState = function () {};
+    var id = addMeal("2026-09-03", "lunch", "サラダチキン", 110, 25, "manual");
+    T.eq(state.logs.length, 1, "day created");
+    T.eq(state.logs[0].meals[0].name, "サラダチキン", "meal stored");
+    T.eq(state.logs[0].meals[0].kcal, 110, "kcal stored");
+    T.eq(state.logs[0].weight, undefined, "no weight fabricated");
+    T.ok(id && id.indexOf("m_") === 0, "returns id");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("addMeal omits protein when not given", function () {
+    var saved = state.logs; state.logs = [];
+    var realSave = saveState; saveState = function () {};
+    addMeal("2026-09-03", "snack", "コーヒー", 5, undefined, "manual");
+    T.eq(state.logs[0].meals[0].protein, undefined, "protein not fabricated");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("removeMeal deletes only the targeted meal", function () {
+    var saved = state.logs; state.logs = [];
+    var realSave = saveState; saveState = function () {};
+    var a = addMeal("2026-09-03", "lunch", "A", 100, 10, "manual");
+    addMeal("2026-09-03", "dinner", "B", 200, 20, "manual");
+    T.eq(removeMeal("2026-09-03", a), true, "returns true");
+    T.eq(state.logs[0].meals.length, 1, "one left");
+    T.eq(state.logs[0].meals[0].name, "B", "correct one left");
+    T.eq(removeMeal("2026-09-03", "nope"), false, "unknown id returns false");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("upsertFood merges by normalized name and counts uses", function () {
+    var saved = state.foods; state.foods = [];
+    var realSave = saveState; saveState = function () {};
+    upsertFood("サラダチキン", 110, 25);
+    upsertFood("  サラダチキン  ", 115, 26);
+    T.eq(state.foods.length, 1, "merged");
+    T.eq(state.foods[0].useCount, 2, "count incremented");
+    T.eq(state.foods[0].kcal, 115, "latest values win");
+    T.eq(state.foods[0].protein, 26, "latest values win");
+    saveState = realSave; state.foods = saved;
+  });
+
+  SELFTEST.add("topFoods orders by useCount then recency", function () {
+    var saved = state.foods;
+    state.foods = [
+      { id: "f_1", name: "A", kcal: 100, protein: 5, useCount: 1, lastUsedAt: "2026-09-01T00:00:00.000Z" },
+      { id: "f_2", name: "B", kcal: 100, protein: 5, useCount: 5, lastUsedAt: "2026-09-01T00:00:00.000Z" },
+      { id: "f_3", name: "C", kcal: 100, protein: 5, useCount: 1, lastUsedAt: "2026-09-02T00:00:00.000Z" }
+    ];
+    var top = topFoods(3);
+    T.eq(top[0].name, "B", "highest count first");
+    T.eq(top[1].name, "C", "then most recent");
+    T.eq(topFoods(1).length, 1, "limit respected");
+    state.foods = saved;
+  });
+
   var PROFILE = {
     heightCm: 176,
     startWeight: 90,
@@ -2157,6 +2215,69 @@
   function deleteLog(date) {
     state.logs = state.logs.filter(function (l) { return l.date !== date; });
     saveState();
+  }
+
+  function normalizeFoodName(name) {
+    return String(name == null ? "" : name).trim().toLowerCase();
+  }
+
+  function findOrCreateLog(date) {
+    var idx = state.logs.findIndex(function (l) { return l.date === date; });
+    if (idx >= 0) {
+      if (!Array.isArray(state.logs[idx].meals)) state.logs[idx].meals = [];
+      return state.logs[idx];
+    }
+    var entry = { date: date, trained: false, meals: [] };
+    state.logs.push(entry);
+    return entry;
+  }
+
+  function addMeal(date, time, name, kcal, protein, source) {
+    var log = findOrCreateLog(date);
+    var meal = {
+      id: newId("m_"), time: time, name: String(name).trim(),
+      kcal: Math.round(kcal), source: source || "manual"
+    };
+    if (typeof protein === "number" && !isNaN(protein)) meal.protein = Math.round(protein);
+    log.meals.push(meal);
+    saveState();
+    return meal.id;
+  }
+
+  function removeMeal(date, id) {
+    var log = state.logs.find(function (l) { return l.date === date; });
+    if (!log || !Array.isArray(log.meals)) return false;
+    var before = log.meals.length;
+    log.meals = log.meals.filter(function (m) { return m.id !== id; });
+    if (log.meals.length === before) return false;
+    saveState();
+    return true;
+  }
+
+  function upsertFood(name, kcal, protein) {
+    var key = normalizeFoodName(name);
+    var existing = state.foods.find(function (f) { return normalizeFoodName(f.name) === key; });
+    var now = new Date().toISOString();
+    if (existing) {
+      existing.useCount = (existing.useCount || 0) + 1;
+      existing.kcal = Math.round(kcal);
+      if (typeof protein === "number" && !isNaN(protein)) existing.protein = Math.round(protein);
+      existing.lastUsedAt = now;
+      saveState();
+      return existing;
+    }
+    var food = { id: newId("f_"), name: String(name).trim(), kcal: Math.round(kcal), useCount: 1, lastUsedAt: now };
+    if (typeof protein === "number" && !isNaN(protein)) food.protein = Math.round(protein);
+    state.foods.push(food);
+    saveState();
+    return food;
+  }
+
+  function topFoods(limit) {
+    return state.foods.slice().sort(function (a, b) {
+      if ((b.useCount || 0) !== (a.useCount || 0)) return (b.useCount || 0) - (a.useCount || 0);
+      return String(b.lastUsedAt || "") < String(a.lastUsedAt || "") ? -1 : 1;
+    }).slice(0, limit || 12);
   }
 
   function fmt1(n) {
