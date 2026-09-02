@@ -1148,13 +1148,38 @@
     T.ok(a !== b, "unique within same millisecond");
   });
 
-  SELFTEST.add("backup key is written once and never overwritten", function () {
+  SELFTEST.add("backupOnce writes once and never overwrites", function () {
     var K = "selftest-backup-probe";
     localStorage.removeItem(K);
-    if (!localStorage.getItem(K)) localStorage.setItem(K, "first");
-    if (!localStorage.getItem(K)) localStorage.setItem(K, "second");
-    T.eq(localStorage.getItem(K), "first", "first backup wins");
+    T.eq(backupOnce(K, "first"), true, "first call backs up and returns true");
+    T.eq(localStorage.getItem(K), "first", "value stored");
+    T.eq(backupOnce(K, "second"), false, "second call returns false");
+    T.eq(localStorage.getItem(K), "first", "original value untouched");
     localStorage.removeItem(K);
+    T.eq(backupOnce(K, ""), false, "falsy raw returns false");
+    T.eq(localStorage.getItem(K), null, "falsy raw stores nothing");
+    localStorage.removeItem(K);
+  });
+
+  SELFTEST.add("addOrUpdateLog merges instead of replacing", function () {
+    var saved = state.logs;
+    state.logs = [{ date: "2026-09-01", weight: 72, trained: false,
+      meals: [{ id: "m_1", time: "lunch", name: "テスト", kcal: 500 }] }];
+    var realSave = saveState; saveState = function () {};
+    addOrUpdateLog("2026-09-01", 71.8, true);
+    T.eq(state.logs[0].meals.length, 1, "meals survive a weight update");
+    T.eq(state.logs[0].meals[0].kcal, 500, "meal contents intact");
+    T.eq(state.logs[0].weight, 71.8, "weight updated");
+    T.eq(state.logs[0].trained, true, "trained updated");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("addOrUpdateLog creates a new day with empty meals", function () {
+    var saved = state.logs; state.logs = [];
+    var realSave = saveState; saveState = function () {};
+    addOrUpdateLog("2026-09-02", 70.2, false);
+    T.deepEq(state.logs[0].meals, [], "new day starts with no meals");
+    saveState = realSave; state.logs = saved;
   });
 
   var PROFILE = {
@@ -2030,15 +2055,20 @@
 
   var state = { logs: [], foods: [], profile: null, schemaVersion: 2 };
 
+  function backupOnce(storageKey, raw) {
+    if (!raw) return false;
+    if (localStorage.getItem(storageKey)) return false;
+    localStorage.setItem(storageKey, raw);
+    return true;
+  }
+
   function loadState() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       var parsed = JSON.parse(raw);
       var needsMigration = parsed && !parsed.schemaVersion;
-      if (needsMigration && !localStorage.getItem(BACKUP_KEY_V1)) {
-        localStorage.setItem(BACKUP_KEY_V1, raw);   // 退避は一度だけ・既存があれば上書きしない
-      }
+      if (needsMigration) backupOnce(BACKUP_KEY_V1, raw);   // 退避は一度だけ・既存があれば上書きしない
       var data = migrateToV2(parsed);
       if (Array.isArray(data.logs)) state.logs = data.logs;
       if (Array.isArray(data.foods)) state.foods = data.foods;
@@ -2077,15 +2107,15 @@
     return (!isNaN(n) && n > 0) ? Math.round(n) : undefined;
   }
 
-  function addOrUpdateLog(date, weight, trained, calories, protein) {
+  function addOrUpdateLog(date, weight, trained) {
     var idx = state.logs.findIndex(function (l) { return l.date === date; });
-    var entry = { date: date, weight: Math.round(weight * 10) / 10, trained: !!trained };
-    var cal = toPositiveIntOrUndef(calories);
-    var pro = toPositiveIntOrUndef(protein);
-    if (cal !== undefined) entry.calories = cal;
-    if (pro !== undefined) entry.protein = pro;
-    if (idx >= 0) state.logs[idx] = entry;
-    else state.logs.push(entry);
+    if (idx >= 0) {
+      state.logs[idx].weight = Math.round(weight * 10) / 10;
+      state.logs[idx].trained = !!trained;
+      if (!Array.isArray(state.logs[idx].meals)) state.logs[idx].meals = [];
+    } else {
+      state.logs.push({ date: date, weight: Math.round(weight * 10) / 10, trained: !!trained, meals: [] });
+    }
     saveState();
   }
 
@@ -2306,13 +2336,16 @@
         ? '<span class="trained-badge yes">&#9989; ジム</span>'
         : '<span class="trained-badge no">&#8212;</span>';
       var macroParts = [];
-      if (typeof l.calories === "number") macroParts.push(l.calories + "kcal");
-      if (typeof l.protein === "number") macroParts.push(l.protein + "g");
+      if (hasMeals(l)) {
+        macroParts.push(dayKcal(l) + "kcal");
+        var p = dayProtein(l);
+        if (p > 0) macroParts.push(p + "g");
+      }
       var macroBadge = macroParts.length ? '<span class="macro-badge">' + macroParts.join(" / ") + '</span>' : "";
       return (
         '<div class="history-row" data-date="' + l.date + '">' +
           '<span class="date num">' + l.date + '</span>' +
-          '<span class="weight num">' + fmt1(l.weight) + 'kg</span>' +
+          '<span class="weight num">' + (typeof l.weight === "number" ? fmt1(l.weight) + "kg" : "—") + '</span>' +
           badge +
           macroBadge +
           '<span class="spacer"></span>' +
@@ -3158,7 +3191,7 @@
       var calories = document.getElementById("f-calories").value;
       var protein = document.getElementById("f-protein").value;
       if (isNaN(weight) || weight <= 0) return;
-      addOrUpdateLog(date, weight, trained, calories, protein);
+      addOrUpdateLog(date, weight, trained);
       document.getElementById("f-weight").value = "";
       document.getElementById("f-calories").value = "";
       document.getElementById("f-protein").value = "";
