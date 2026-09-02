@@ -267,6 +267,21 @@
     -webkit-appearance:none;
     appearance:none;
   }
+  .field input[type="text"],
+  .field select{
+    background:#0E141A;
+    border:1px solid var(--border2);
+    color:var(--text);
+    border-radius:8px;
+    padding:9px 10px;
+    font-family:var(--sans);
+    font-size:15px;
+    width:100%;
+    max-width:100%;
+    height:44px;
+    -webkit-appearance:none;
+    appearance:none;
+  }
   /* iOS Safari centers the date value by default, unlike other inputs */
   .field input[type="date"]::-webkit-date-and-time-value{ text-align:left; }
   .field input:focus{ outline:1px solid var(--cyan); }
@@ -437,6 +452,11 @@
     border:1px dashed var(--border2);
     border-radius:10px;
   }
+
+  /* ---- frequent-food chips ---- */
+  .food-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .food-chip{background:#20242b;border:1px solid #333a44;color:#e6e9ee;border-radius:14px;padding:6px 10px;font-size:13px;cursor:pointer;display:flex;gap:6px;align-items:baseline}
+  .food-chip-macro{font-size:11px;color:#8a8f98}
 
   /* ---- recipe search ---- */
   .recipe-search{
@@ -869,7 +889,7 @@
   <div class="panel" id="todayTargetCard"></div>
 
   <div class="tab-panel active" id="tab-dashboard">
-    <h2 class="section-title">記録を追加</h2>
+    <h2 class="section-title">体重を記録</h2>
     <div class="panel">
       <form id="logForm">
         <div class="form-row">
@@ -881,14 +901,6 @@
             <label for="f-weight">体重 (kg)</label>
             <input type="number" id="f-weight" step="0.1" min="0" placeholder="0.0" required>
           </div>
-          <div class="field">
-            <label for="f-calories">摂取カロリー (任意)</label>
-            <input type="number" id="f-calories" step="1" min="0" placeholder="kcal">
-          </div>
-          <div class="field">
-            <label for="f-protein">タンパク質 (任意)</label>
-            <input type="number" id="f-protein" step="1" min="0" placeholder="g">
-          </div>
           <div class="form-bottom-row">
             <div class="toggle-field">
               <label for="f-trained">ジム</label>
@@ -899,6 +911,42 @@
             </div>
             <button type="submit" class="btn">追加</button>
           </div>
+        </div>
+      </form>
+    </div>
+
+    <h2 class="section-title">食事を追加</h2>
+    <div class="panel">
+      <div class="food-chips" id="foodChips"></div>
+      <form id="mealForm">
+        <div class="form-row">
+          <div class="field">
+            <label for="m-time">食事帯</label>
+            <select id="m-time">
+              <option value="breakfast">朝食</option>
+              <option value="lunch">昼食</option>
+              <option value="dinner">夕食</option>
+              <option value="snack">間食</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="m-date">日付</label>
+            <input type="date" id="m-date">
+          </div>
+          <div class="field">
+            <label for="m-name">名前</label>
+            <input type="text" id="m-name" placeholder="例: コンビニのサラダチキン">
+          </div>
+          <div class="field">
+            <label for="m-kcal">カロリー (kcal)</label>
+            <input type="number" id="m-kcal" step="1" min="0" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="m-protein">タンパク質 (任意)</label>
+            <input type="number" id="m-protein" step="1" min="0" inputmode="numeric" placeholder="g">
+          </div>
+          <button type="submit" class="btn full">食事を追加</button>
+          <div class="data-status" id="mealStatus"></div>
         </div>
       </form>
     </div>
@@ -1280,6 +1328,24 @@
     T.eq(top[0].name, "B", "highest count first");
     T.eq(top[1].name, "C", "then most recent");
     T.eq(topFoods(1).length, 1, "limit respected");
+    state.foods = saved;
+  });
+
+  SELFTEST.add("renderFoodChips shows empty-state when no foods recorded yet", function () {
+    var saved = state.foods; state.foods = [];
+    renderFoodChips();
+    T.ok(document.getElementById("foodChips").innerHTML.indexOf("empty-state") !== -1, "empty state shown");
+    state.foods = saved;
+  });
+
+  SELFTEST.add("renderFoodChips escapes food names into chip markup", function () {
+    var saved = state.foods;
+    state.foods = [{ id: "f_x", name: "<b>chicken</b>&\"'", kcal: 110, protein: 25, useCount: 1, lastUsedAt: "2026-09-01T00:00:00.000Z" }];
+    renderFoodChips();
+    var html = document.getElementById("foodChips").innerHTML;
+    T.ok(html.indexOf("<b>chicken</b>") === -1, "raw markup not present");
+    T.ok(html.indexOf("&lt;b&gt;chicken&lt;/b&gt;") !== -1, "name escaped");
+    T.ok(html.indexOf("110kcal / P25") !== -1, "macro line rendered");
     state.foods = saved;
   });
 
@@ -2241,11 +2307,6 @@
     var m = String(d.getMonth() + 1).padStart(2, "0");
     var day = String(d.getDate()).padStart(2, "0");
     return y + "-" + m + "-" + day;
-  }
-
-  function toPositiveIntOrUndef(v) {
-    var n = parseFloat(v);
-    return (!isNaN(n) && n > 0) ? Math.round(n) : undefined;
   }
 
   function addOrUpdateLog(date, weight, trained) {
@@ -3398,6 +3459,33 @@
     renderHistory();
     renderChart();
     renderMeals();
+    renderFoodChips();
+  }
+
+  function renderFoodChips() {
+    var el = document.getElementById("foodChips");
+    var foods = topFoods(12);
+    if (foods.length === 0) {
+      el.innerHTML = '<div class="empty-state">手入力した食事はここに残り、次回から1タップで追加できます。</div>';
+      return;
+    }
+    el.innerHTML = foods.map(function (f) {
+      var macro = f.kcal + "kcal" + (typeof f.protein === "number" ? " / P" + f.protein : "");
+      return '<button type="button" class="food-chip" data-food="' + f.id + '">' +
+        escapeHtml(f.name) + '<span class="food-chip-macro">' + macro + '</span></button>';
+    }).join("");
+
+    el.querySelectorAll("[data-food]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var food = state.foods.find(function (f) { return f.id === btn.getAttribute("data-food"); });
+        if (!food) return;
+        var date = document.getElementById("m-date").value || todayStr();
+        var time = document.getElementById("m-time").value;
+        addMeal(date, time, food.name, food.kcal, food.protein, "food");
+        upsertFood(food.name, food.kcal, food.protein);
+        renderAll();
+      });
+    });
   }
 
   function setupTabs() {
@@ -3424,15 +3512,42 @@
       var date = dateInput.value || todayStr();
       var weight = parseFloat(document.getElementById("f-weight").value);
       var trained = document.getElementById("f-trained").checked;
-      var calories = document.getElementById("f-calories").value;
-      var protein = document.getElementById("f-protein").value;
       if (isNaN(weight) || weight <= 0) return;
       addOrUpdateLog(date, weight, trained);
       document.getElementById("f-weight").value = "";
-      document.getElementById("f-calories").value = "";
-      document.getElementById("f-protein").value = "";
       document.getElementById("f-trained").checked = false;
       dateInput.value = todayStr();
+      renderAll();
+    });
+  }
+
+  function setupMealForm() {
+    var form = document.getElementById("mealForm");
+    var dateInput = document.getElementById("m-date");
+    dateInput.value = todayStr();
+    document.getElementById("m-time").value = defaultMealTime(new Date());
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var status = document.getElementById("mealStatus");
+      var name = document.getElementById("m-name").value.trim();
+      var kcal = parseFloat(document.getElementById("m-kcal").value);
+      var proteinRaw = document.getElementById("m-protein").value;
+      var protein = proteinRaw === "" ? undefined : parseFloat(proteinRaw);
+
+      if (!name) { status.textContent = "名前を入力してください"; status.className = "data-status err"; return; }
+      if (isNaN(kcal) || kcal < 0) { status.textContent = "カロリーを正しく入力してください"; status.className = "data-status err"; return; }
+      if (protein !== undefined && (isNaN(protein) || protein < 0)) { status.textContent = "タンパク質を正しく入力してください"; status.className = "data-status err"; return; }
+
+      var date = dateInput.value || todayStr();
+      addMeal(date, document.getElementById("m-time").value, name, kcal, protein, "manual");
+      upsertFood(name, kcal, protein);
+
+      document.getElementById("m-name").value = "";
+      document.getElementById("m-kcal").value = "";
+      document.getElementById("m-protein").value = "";
+      status.textContent = name + " を追加しました";
+      status.className = "data-status ok";
       renderAll();
     });
   }
@@ -3609,6 +3724,7 @@
   loadState();
   setupTabs();
   setupForm();
+  setupMealForm();
   setupSettings();
   setupChartToggle();
   setupRecipeModal();
