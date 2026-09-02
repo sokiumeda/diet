@@ -1080,6 +1080,83 @@
     T.eq(defaultMealTime(new Date("2026-09-03T23:00:00")), "snack", "late night");
   });
 
+  SELFTEST.add("migrate converts v1 daily totals into one 'other' meal", function () {
+    var v1 = { logs: [{ date: "2026-09-01", weight: 72.4, trained: true, calories: 1200, protein: 90 }] };
+    var v2 = migrateToV2(v1);
+    T.eq(v2.schemaVersion, 2, "version stamped");
+    T.eq(v2.logs[0].meals.length, 1, "one meal");
+    T.eq(v2.logs[0].meals[0].time, "other", "bucket");
+    T.eq(v2.logs[0].meals[0].kcal, 1200, "kcal preserved");
+    T.eq(v2.logs[0].meals[0].protein, 90, "protein preserved");
+    T.eq(v2.logs[0].meals[0].source, "migrated", "source");
+    T.eq(v2.logs[0].weight, 72.4, "weight untouched");
+    T.eq(v2.logs[0].trained, true, "trained untouched");
+    T.eq(v2.logs[0].calories, undefined, "old field removed");
+    T.eq(v2.logs[0].protein, undefined, "old field removed");
+  });
+
+  SELFTEST.add("migrate handles calories-only, protein-only and empty days", function () {
+    var v2 = migrateToV2({ logs: [
+      { date: "2026-09-01", weight: 72, calories: 1200 },
+      { date: "2026-09-02", weight: 72, protein: 80 },
+      { date: "2026-09-03", weight: 72 }
+    ] });
+    T.eq(v2.logs[0].meals[0].protein, undefined, "no fabricated protein");
+    T.eq(v2.logs[1].meals[0].kcal, 0, "protein-only day gets zero kcal");
+    T.eq(v2.logs[1].meals[0].protein, 80, "protein kept");
+    T.deepEq(v2.logs[2].meals, [], "day with neither gets empty meals");
+  });
+
+  SELFTEST.add("migrate preserves totals exactly", function () {
+    var v1 = { logs: [
+      { date: "2026-09-01", weight: 72, calories: 1200, protein: 90 },
+      { date: "2026-09-02", weight: 72, calories: 1450, protein: 105 }
+    ] };
+    var before = v1.logs.reduce(function (s, l) { return s + (l.calories || 0); }, 0);
+    var v2 = migrateToV2(v1);
+    var after = v2.logs.reduce(function (s, l) { return s + dayKcal(l); }, 0);
+    T.eq(after, before, "total kcal unchanged");
+  });
+
+  SELFTEST.add("migrate is idempotent and leaves v2 data alone", function () {
+    var once = migrateToV2({ logs: [{ date: "2026-09-01", weight: 72, calories: 1200 }] });
+    var twice = migrateToV2(once);
+    T.deepEq(twice, once, "second pass changes nothing");
+    T.eq(twice.logs[0].meals.length, 1, "no duplicated meal");
+  });
+
+  SELFTEST.add("migrate does not mutate its input", function () {
+    var v1 = { logs: [{ date: "2026-09-01", weight: 72, calories: 1200 }] };
+    migrateToV2(v1);
+    T.eq(v1.logs[0].calories, 1200, "input untouched");
+  });
+
+  SELFTEST.add("migrate initialises foods and preserves profile", function () {
+    var v2 = migrateToV2({ logs: [], profile: { startWeight: 80, goalWeight: 65 } });
+    T.deepEq(v2.foods, [], "foods initialised");
+    T.eq(v2.profile.goalWeight, 65, "profile preserved");
+  });
+
+  SELFTEST.add("migrate tolerates empty and malformed input", function () {
+    T.deepEq(migrateToV2({}).logs, [], "no logs key");
+    T.deepEq(migrateToV2({ logs: [] }).logs, [], "empty logs");
+  });
+
+  SELFTEST.add("newId produces unique ids with prefix", function () {
+    var a = newId("m_"), b = newId("m_");
+    T.ok(a.indexOf("m_") === 0, "prefix");
+    T.ok(a !== b, "unique within same millisecond");
+  });
+
+  SELFTEST.add("backup key is written once and never overwritten", function () {
+    var K = "selftest-backup-probe";
+    localStorage.removeItem(K);
+    if (!localStorage.getItem(K)) localStorage.setItem(K, "first");
+    if (!localStorage.getItem(K)) localStorage.setItem(K, "second");
+    T.eq(localStorage.getItem(K), "first", "first backup wins");
+    localStorage.removeItem(K);
+  });
+
   var PROFILE = {
     heightCm: 176,
     startWeight: 90,
@@ -1917,23 +1994,66 @@
     return hash % poolSize;
   }
 
-  var state = { logs: [], profile: null };
+  var BACKUP_KEY_V1 = "nexra-diet-tracker-backup-v1";
+  var idCounter = 0;
+
+  function newId(prefix) {
+    idCounter++;
+    return prefix + Date.now() + "_" + idCounter;
+  }
+
+  function migrateToV2(parsed) {
+    if (!parsed || typeof parsed !== "object") return { schemaVersion: 2, logs: [], foods: [] };
+    if (parsed.schemaVersion) return parsed;
+
+    var logs = Array.isArray(parsed.logs) ? parsed.logs : [];
+    var out = { schemaVersion: 2, logs: [], foods: Array.isArray(parsed.foods) ? parsed.foods : [] };
+    if (parsed.profile) out.profile = parsed.profile;
+
+    logs.forEach(function (l) {
+      var entry = { date: l.date, trained: !!l.trained, meals: [] };
+      if (typeof l.weight === "number") entry.weight = l.weight;
+      var hasCal = typeof l.calories === "number";
+      var hasPro = typeof l.protein === "number";
+      if (hasCal || hasPro) {
+        var meal = {
+          id: newId("m_"), time: "other", name: "まとめて記録（移行）",
+          kcal: hasCal ? l.calories : 0, source: "migrated"
+        };
+        if (hasPro) meal.protein = l.protein;
+        entry.meals.push(meal);
+      }
+      out.logs.push(entry);
+    });
+    return out;
+  }
+
+  var state = { logs: [], foods: [], profile: null, schemaVersion: 2 };
 
   function loadState() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        var parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.logs)) state.logs = parsed.logs;
-        if (parsed && parsed.profile && typeof parsed.profile.startWeight === "number" && typeof parsed.profile.goalWeight === "number") state.profile = parsed.profile;
+      if (!raw) return;
+      var parsed = JSON.parse(raw);
+      var needsMigration = parsed && !parsed.schemaVersion;
+      if (needsMigration && !localStorage.getItem(BACKUP_KEY_V1)) {
+        localStorage.setItem(BACKUP_KEY_V1, raw);   // 退避は一度だけ・既存があれば上書きしない
       }
+      var data = migrateToV2(parsed);
+      if (Array.isArray(data.logs)) state.logs = data.logs;
+      if (Array.isArray(data.foods)) state.foods = data.foods;
+      if (data.profile && typeof data.profile.startWeight === "number" && typeof data.profile.goalWeight === "number") {
+        state.profile = data.profile;
+      }
+      if (needsMigration) saveState();
     } catch (e) {
       state.logs = [];
+      state.foods = [];
     }
   }
 
   function saveState() {
-    var data = { logs: state.logs };
+    var data = { schemaVersion: 2, logs: state.logs, foods: state.foods };
     if (state.profile) data.profile = state.profile;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }
