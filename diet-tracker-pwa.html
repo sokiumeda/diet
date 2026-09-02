@@ -884,6 +884,12 @@
     font-family:var(--mono);
     padding-top:10px;
   }
+
+  /* ---- recipe logging + toast ---- */
+  .recipe-log-btn{margin-top:6px;background:#2b6cb0;border:none;color:#fff;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:72px;background:#2a2f37;color:#e6e9ee;border:1px solid #3a414c;border-radius:10px;padding:10px 14px;display:none;gap:12px;align-items:center;z-index:60;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+  .toast.show{display:flex}
+  .toast-undo{background:none;border:none;color:#7fb1ff;font-size:13px;cursor:pointer;padding:0}
 </style>
 </head>
 <body>
@@ -1040,6 +1046,7 @@
     <div class="recipe-time" id="recipeTime"></div>
     <div class="recipe-title" id="recipeTitle"></div>
     <div class="recipe-macros" id="recipeMacros"></div>
+    <button class="recipe-log-btn" id="recipeLogBtn" type="button">記録に追加</button>
     <h4>材料</h4>
     <ul class="recipe-ingredients" id="recipeIngredients"></ul>
     <h4>作り方</h4>
@@ -1308,6 +1315,36 @@
     T.eq(state.logs[0].meals.length, 1, "one left");
     T.eq(state.logs[0].meals[0].name, "B", "correct one left");
     T.eq(removeMeal("2026-09-03", "nope"), false, "unknown id returns false");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("logRecipe uses the recipe's own meal time, not the clock", function () {
+    var saved = state.logs; state.logs = [];
+    var realSave = saveState; saveState = function () {};
+    var recipe = MEALS.dinner[0];
+    logRecipe("dinner", 0);
+    T.eq(state.logs[0].meals.length, 1, "one meal logged");
+    var meal = state.logs[0].meals[0];
+    T.eq(meal.time, "dinner", "uses recipe's own bucket, not defaultMealTime()");
+    T.eq(meal.name, recipe.name, "recipe name stored");
+    T.eq(meal.kcal, recipe.kcal, "recipe kcal stored");
+    T.eq(meal.protein, recipe.protein, "recipe protein stored");
+    T.eq(meal.source, "recipe", "source is recipe");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("logRecipe's toast undo removes only the logged meal", function () {
+    var saved = state.logs; state.logs = [];
+    var realSave = saveState; saveState = function () {};
+    var date = todayStr();
+    addMeal(date, "lunch", "手入力", 300, 20, "manual");
+    logRecipe("breakfast", 0);
+    T.eq(state.logs[0].meals.length, 2, "manual meal plus logged recipe");
+    var toastBtn = document.querySelector("#toast .toast-undo");
+    T.ok(!!toastBtn, "undo button rendered");
+    toastBtn.click();
+    T.eq(state.logs[0].meals.length, 1, "recipe meal removed, manual meal intact");
+    T.eq(state.logs[0].meals[0].name, "手入力", "the other meal is untouched");
     saveState = realSave; state.logs = saved;
   });
 
@@ -3317,11 +3354,13 @@
           '<span class="srr-name">' + r.m.name + '</span>' +
           '<span class="srr-macro num">' + r.m.kcal + 'kcal / ' + r.m.protein + 'g</span>' +
           tagsHtml +
+          '<button class="recipe-log-btn" type="button">記録に追加</button>' +
         '</div>'
       );
     }).join("");
 
     el.innerHTML = countHtml + '<div class="search-result-list">' + rowsHtml + '</div>';
+    bindRecipeLogButtons(el);
   }
 
   function renderTagChips() {
@@ -3376,6 +3415,60 @@
     });
   }
 
+  var toastTimer = null;
+  function showToast(message, undoFn) {
+    var el = document.getElementById("toast");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "toast";
+      el.className = "toast";
+      document.body.appendChild(el);
+    }
+    el.innerHTML = '<span>' + escapeHtml(message) + '</span>' +
+      (undoFn ? '<button class="toast-undo" type="button">取り消し</button>' : "");
+    el.classList.add("show");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove("show"); }, 5000);
+    if (undoFn) {
+      el.querySelector(".toast-undo").addEventListener("click", function () {
+        undoFn();
+        el.classList.remove("show");
+        renderAll();
+      });
+    }
+  }
+
+  // Logs the recipe found at MEALS[mt][idx] as today's meal. mt/idx are
+  // recovered from the data-mt/data-idx attributes already present on the
+  // element that identified the recipe (meal card, search result row, or
+  // the open detail modal) — no separate index is introduced.
+  function logRecipe(mt, idx) {
+    var recipe = MEALS[mt] && MEALS[mt][idx];
+    if (!recipe) return;
+    var date = todayStr();
+    // the recipe's own meal-time bucket is used as-is, not the clock
+    var id = addMeal(date, mt, recipe.name, recipe.kcal, recipe.protein, "recipe");
+    renderAll();
+    showToast("+" + recipe.kcal + "kcal / P" + recipe.protein + "g を記録しました", function () {
+      removeMeal(date, id);
+    });
+  }
+
+  // Recipe cards and search result rows are regenerated on every render,
+  // so their "記録に追加" buttons are (re)bound right after the HTML that
+  // contains them is written. Each button's enclosing element already
+  // carries data-mt/data-idx (used elsewhere to open the detail modal).
+  function bindRecipeLogButtons(container) {
+    container.querySelectorAll(".recipe-log-btn").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation(); // don't also trigger the card's modal-open handler
+        var host = btn.closest("[data-mt]");
+        if (!host) return;
+        logRecipe(host.getAttribute("data-mt"), parseInt(host.getAttribute("data-idx"), 10));
+      });
+    });
+  }
+
   function renderMeals() {
     var el = document.getElementById("mealsArea");
     if (recipeSearchActive()) {
@@ -3407,6 +3500,7 @@
             '<div class="macro"><div class="num">' + m.kcal + '</div><div class="label">kcal</div></div>' +
             '<div class="macro"><div class="num">' + m.protein + 'g</div><div class="label">protein</div></div>' +
           '</div>' +
+          '<button class="recipe-log-btn" type="button">記録に追加</button>' +
           '<div class="recipe-hint">レシピを見る &gt;</div>' +
         '</div>'
       );
@@ -3432,11 +3526,15 @@
     '</details>';
 
     el.innerHTML = summaryHtml + '<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">' + cardsHtml + '</div><div style="margin-top:10px;">' + allMenuHtml + '</div>';
+    bindRecipeLogButtons(el);
   }
 
   function openRecipe(mt, idx) {
     var m = MEALS[mt] && MEALS[mt][idx];
     if (!m) return;
+    var overlay = document.getElementById("recipeOverlay");
+    overlay.setAttribute("data-mt", mt);
+    overlay.setAttribute("data-idx", idx);
     document.getElementById("recipeTime").textContent = MEAL_TIME_LABEL[mt];
     document.getElementById("recipeTitle").textContent = m.name;
     document.getElementById("recipeMacros").innerHTML =
@@ -3463,6 +3561,13 @@
     });
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") closeRecipe();
+    });
+    document.getElementById("recipeLogBtn").addEventListener("click", function (e) {
+      e.stopPropagation();
+      var mt = overlay.getAttribute("data-mt");
+      var idx = parseInt(overlay.getAttribute("data-idx"), 10);
+      if (!mt || isNaN(idx)) return;
+      logRecipe(mt, idx);
     });
     // delegate taps so listeners survive re-renders of #mealsArea
     document.getElementById("mealsArea").addEventListener("click", function (e) {
