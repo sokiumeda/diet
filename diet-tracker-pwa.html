@@ -650,6 +650,14 @@
   }
   .target-bar-fill.over{ background:var(--red); }
 
+  .meal-bucket{margin-top:12px}
+  .meal-bucket-label{font-size:12px;color:#8a8f98;margin-bottom:4px}
+  .meal-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+  .meal-row.empty{color:#6b7078;font-size:13px}
+  #todayTargetCard .meal-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meal-macro{font-size:13px;color:#b9bec7}
+  .meal-del{background:none;border:none;color:#8a8f98;font-size:18px;padding:0 4px;cursor:pointer}
+
   /* ---- meals ---- */
   .meal-card{
     background:var(--panel);
@@ -1302,6 +1310,17 @@
     var migrated = migrateToV2(v1);
     T.eq(validateImportedData(migrated), null, "migrated payload validates");
     T.eq(dayKcal(migrated.logs[0]), 1200, "totals survive");
+  });
+
+  SELFTEST.add("escapeHtml neutralises markup in food names", function () {
+    T.eq(escapeHtml('<img src=x onerror=alert(1)>'), "&lt;img src=x onerror=alert(1)&gt;", "tags escaped");
+    T.eq(escapeHtml("A & B"), "A &amp; B", "ampersand escaped");
+  });
+
+  SELFTEST.add("import rejects meal times inherited from Object.prototype", function () {
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ id: "m_1", time: "constructor", name: "A", kcal: 100 }] }
+    ] }), "'constructor' as a meal time is rejected, not treated as a valid bucket");
   });
 
   var PROFILE = {
@@ -2555,6 +2574,12 @@
     });
   }
 
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
   function targetBarHtml(label, actual, target, unit) {
     var pct = target > 0 ? Math.max(0, Math.min(100, (actual / target) * 100)) : 0;
     var over = actual > target;
@@ -2570,18 +2595,39 @@
     var el = document.getElementById("todayTargetCard");
     var today = todayStr();
     var log = state.logs.find(function (l) { return l.date === today; });
-    var hasCalories = log && typeof log.calories === "number";
-    var hasProtein = log && typeof log.protein === "number";
 
-    if (!log || (!hasCalories && !hasProtein)) {
-      el.innerHTML = '<div class="empty-state">本日のカロリー・タンパク質はまだ記録されていません。「記録を追加」から入力できます。</div>';
+    if (!hasMeals(log)) {
+      el.innerHTML = '<div class="empty-state">本日の食事はまだ記録されていません。「食事を追加」から記録できます。</div>';
       return;
     }
 
-    var rows = "";
-    if (hasCalories) rows += targetBarHtml("カロリー", log.calories, getTargetCalories(), "kcal");
-    if (hasProtein) rows += targetBarHtml("タンパク質", log.protein, getTargetProtein(), "g");
-    el.innerHTML = rows;
+    var html = targetBarHtml("カロリー", dayKcal(log), getTargetCalories(), "kcal") +
+               targetBarHtml("タンパク質", dayProtein(log), getTargetProtein(), "g");
+
+    LOG_MEAL_TIME_ORDER.forEach(function (mt) {
+      var items = log.meals.filter(function (m) { return m.time === mt; });
+      if (mt === "other" && items.length === 0) return;
+      var rows = items.length
+        ? items.map(function (m) {
+            var macro = m.kcal + "kcal" + (typeof m.protein === "number" ? " / P" + m.protein + "g" : "");
+            return '<div class="meal-row">' +
+              '<span class="meal-name">' + escapeHtml(m.name) + '</span>' +
+              '<span class="meal-macro num">' + macro + '</span>' +
+              '<button class="meal-del" data-meal="' + m.id + '" aria-label="削除">&times;</button>' +
+            '</div>';
+          }).join("")
+        : '<div class="meal-row empty">（未記録）</div>';
+      html += '<div class="meal-bucket"><div class="meal-bucket-label">' + LOG_MEAL_TIME_LABEL[mt] + '</div>' + rows + '</div>';
+    });
+
+    el.innerHTML = html;
+
+    el.querySelectorAll("[data-meal]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        removeMeal(today, btn.getAttribute("data-meal"));   // 1食削除は確認を出さない
+        renderAll();
+      });
+    });
   }
 
   var currentChartMetric = "weight";
@@ -3439,7 +3485,7 @@
         for (var j = 0; j < l.meals.length; j++) {
           var m = l.meals[j];
           if (!m || typeof m !== "object") return "食事データの形式が正しくありません (" + i + "件目)";
-          if (!LOG_MEAL_TIME_LABEL[m.time]) return "食事データに不正な食事帯があります (" + i + "件目)";
+          if (!Object.prototype.hasOwnProperty.call(LOG_MEAL_TIME_LABEL, m.time)) return "食事データに不正な食事帯があります (" + i + "件目)";
           if (typeof m.name !== "string") return "食事データに不正な名前があります (" + i + "件目)";
           if (typeof m.kcal !== "number" || isNaN(m.kcal)) return "食事データに不正なカロリーがあります (" + i + "件目)";
           if (m.protein !== undefined && (typeof m.protein !== "number" || isNaN(m.protein))) return "食事データに不正なタンパク質量があります (" + i + "件目)";
