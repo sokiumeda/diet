@@ -1182,6 +1182,41 @@
     saveState = realSave; state.logs = saved;
   });
 
+  SELFTEST.add("computeGaugeStats/renderGauge skip a weightless day for weight-derived stats", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-08-01", weight: 80, trained: false, meals: [] },
+      { date: "2026-08-08", weight: 78.6, trained: false, meals: [] },
+      { date: "2026-08-15", trained: true, meals: [{ id: "m_1", time: "lunch", name: "朝食", kcal: 400 }] }
+    ];
+    var s = computeGaugeStats();
+    T.eq(s.hasWeight, true, "a weight-bearing day exists");
+    T.eq(s.currentWeight, 78.6, "latest weight-bearing day used, not the weightless (most recent) day");
+    T.ok(Math.abs(s.weeklyPace - 1.4) < 0.0001, "weeklyPace computed only from the two weight-bearing days");
+    T.ok(!isNaN(s.progressPct), "progressPct is a real number");
+    T.ok(!isNaN(s.remaining), "remaining is a real number");
+    renderGauge();
+    T.ok(document.getElementById("gaugePanel").innerHTML.indexOf("NaN") === -1, "gauge markup has no NaN");
+    state.logs = saved;
+  });
+
+  SELFTEST.add("computeGaugeStats/renderGauge show a placeholder when no day has a weight yet", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-08-01", trained: false, meals: [{ id: "m_1", time: "lunch", name: "テスト", kcal: 400 }] },
+      { date: "2026-08-02", trained: true, meals: [] }
+    ];
+    var s = computeGaugeStats();
+    T.eq(s.hasWeight, false, "no log has a recorded weight");
+    T.eq(s.currentWeight, getStartWeight(), "falls back to the start weight instead of undefined");
+    T.eq(s.weeklyPace, null, "no pace can be computed without weight data");
+    T.eq(s.progressPct, 0, "progress bar stays at 0, not NaN");
+    T.ok(!isNaN(s.remaining), "remaining is a real number, not NaN");
+    renderGauge();
+    T.ok(document.getElementById("gaugePanel").innerHTML.indexOf("NaN") === -1, "gauge markup has no NaN");
+    state.logs = saved;
+  });
+
   var PROFILE = {
     heightCm: 176,
     startWeight: 90,
@@ -2146,13 +2181,15 @@
   function computeGaugeStats() {
     var logsAsc = sortedLogsAsc();
     var hasLogs = logsAsc.length > 0;
-    var currentWeight = hasLogs ? logsAsc[logsAsc.length - 1].weight : getStartWeight();
+    var weightLogsAsc = metricLogs("weight");
+    var hasWeight = weightLogsAsc.length > 0;
+    var currentWeight = hasWeight ? weightLogsAsc[weightLogsAsc.length - 1].weight : getStartWeight();
     var remaining = currentWeight - getGoalWeight();
 
     var weeklyPace = null;
-    if (logsAsc.length >= 2) {
-      var first = logsAsc[0];
-      var last = logsAsc[logsAsc.length - 1];
+    if (weightLogsAsc.length >= 2) {
+      var first = weightLogsAsc[0];
+      var last = weightLogsAsc[weightLogsAsc.length - 1];
       var elapsedDays = daysBetween(first.date, last.date);
       var elapsedWeeks = elapsedDays / 7;
       if (elapsedWeeks > 0) {
@@ -2176,11 +2213,14 @@
       }
     }
 
-    var progressPct = ((getStartWeight() - currentWeight) / (getStartWeight() - getGoalWeight())) * 100;
+    var progressPct = hasWeight
+      ? ((getStartWeight() - currentWeight) / (getStartWeight() - getGoalWeight())) * 100
+      : 0;
     progressPct = Math.max(0, Math.min(100, progressPct));
 
     return {
       hasLogs: hasLogs,
+      hasWeight: hasWeight,
       currentWeight: currentWeight,
       remaining: remaining,
       weeklyPace: weeklyPace,
@@ -2256,12 +2296,12 @@
   function renderGauge() {
     var s = computeGaugeStats();
     var el = document.getElementById("gaugePanel");
-    var logsAsc = sortedLogsAsc();
+    var weightLogsAsc = metricLogs("weight");
 
     var paceText = s.weeklyPace === null ? "—" : (s.weeklyPace >= 0 ? "-" : "+") + fmt1(Math.abs(s.weeklyPace)) + "kg/週";
     var paceEval = paceEvaluation(s.weeklyPace, s.currentWeight);
     var etaText = "—";
-    if (s.remaining <= 0 && s.hasLogs) {
+    if (s.remaining <= 0 && s.hasWeight) {
       etaText = "達成!";
     } else if (s.etaWeeks !== null) {
       etaText = fmt1(s.etaWeeks) + " 週";
@@ -2285,17 +2325,17 @@
       return '<span class="tick" style="left:' + pct + '%">' + tv + '</span>';
     }).join("");
 
-    var sparkHtml = logsAsc.length >= 2 ? '<div class="spark-wrap"><canvas id="weightSpark"></canvas></div>' : '';
+    var sparkHtml = weightLogsAsc.length >= 2 ? '<div class="spark-wrap"><canvas id="weightSpark"></canvas></div>' : '';
 
     el.innerHTML =
       '<div class="gauge-top">' +
         '<div class="gauge-stat">' +
           '<div class="label">現在の体重</div>' +
-          '<div class="value num">' + fmt1(s.currentWeight) + '<small> kg</small></div>' +
+          '<div class="value num">' + (s.hasWeight ? fmt1(s.currentWeight) + '<small> kg</small>' : '—') + '</div>' +
         '</div>' +
         '<div class="gauge-stat accent">' +
           '<div class="label">目標まで</div>' +
-          '<div class="value num">' + fmt1(Math.max(s.remaining, 0)) + '<small> kg</small></div>' +
+          '<div class="value num">' + (s.hasWeight ? fmt1(Math.max(s.remaining, 0)) + '<small> kg</small>' : '—') + '</div>' +
         '</div>' +
       '</div>' +
       sparkHtml +
@@ -2310,15 +2350,15 @@
         '<div class="mini-stat"><div class="label">連続トレ日数</div><div class="value num">' + streakText + '</div></div>' +
       '</div>';
 
-    if (logsAsc.length >= 2) {
+    if (weightLogsAsc.length >= 2) {
       var sparkCanvas = document.getElementById("weightSpark");
-      drawSparkline(sparkCanvas, logsAsc.slice(-14).map(function (l) { return l.weight; }));
+      drawSparkline(sparkCanvas, weightLogsAsc.slice(-14).map(function (l) { return l.weight; }));
       if (!sparkResizeBound) {
         sparkResizeBound = true;
         window.addEventListener("resize", function () {
           var c = document.getElementById("weightSpark");
-          var logs = sortedLogsAsc();
-          if (c && logs.length >= 2) drawSparkline(c, logs.slice(-14).map(function (l) { return l.weight; }));
+          var wLogs = metricLogs("weight");
+          if (c && wLogs.length >= 2) drawSparkline(c, wLogs.slice(-14).map(function (l) { return l.weight; }));
         });
       }
     }
