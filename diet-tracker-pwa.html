@@ -965,12 +965,22 @@
     <h2 class="section-title">食事を追加</h2>
     <div class="panel">
       <div class="food-chips" id="foodChips"></div>
-      <!-- TEMPORARY (Task 2 gate verification only; removed in a later cleanup task).
-           All ids in this block are prefixed scanTemp so cleanup can find them. -->
-      <div id="scanTempPanel" style="margin-bottom:10px;padding:8px;border:1px dashed var(--border2);border-radius:6px;">
-        <button type="button" class="btn" id="scanTempBtn">バーコードスキャン(検証用・一時)</button>
-        <video id="scanTempVideo" autoplay muted playsinline style="width:100%;max-width:320px;margin-top:8px;display:none;"></video>
-        <div class="data-status" id="scanTempOut"></div>
+      <!-- Barcode scan entry point (Task 6). Camera scan and manual JAN entry
+           both feed the same fetchOffProduct() lookup path; every failure
+           (camera-side or lookup-side) is handled so the user always lands
+           somewhere they can still record their meal - see scanFailureMessage
+           and handleScanFailure() below. -->
+      <div class="panel" id="scanPanel" style="margin-bottom:10px;">
+        <button type="button" class="btn full" id="scan-start-btn">バーコードをスキャン</button>
+        <video id="scan-video" autoplay muted playsinline style="width:100%;max-width:320px;margin-top:8px;display:none;"></video>
+        <div class="data-status" id="scan-hint" hidden></div>
+        <div class="field" style="margin-top:8px;">
+          <label for="scan-jan-input">JANコードを入力</label>
+          <input type="text" inputmode="numeric" id="scan-jan-input" placeholder="例: 4901005009158">
+        </div>
+        <button type="button" class="btn secondary full" id="scan-jan-btn">この番号で調べる</button>
+        <div class="data-status" id="scan-jan-readout" hidden></div>
+        <div class="data-status" id="scan-status"></div>
       </div>
 
       <!-- Scan confirm screen (Task 5): the only path that turns a scanned
@@ -2166,6 +2176,20 @@
       addMeal = realAddMeal;
       scanState = saved;
     }
+  });
+
+  SELFTEST.add("scanFailureMessage covers both failure vocabularies (scanner: denied/camera/library, lookup: notfound/ratelimit/network) and falls back for an unknown reason", function () {
+    T.ok(scanFailureMessage("denied").length > 0, "denied has a message");
+    T.ok(scanFailureMessage("camera").length > 0, "camera has a message");
+    T.ok(scanFailureMessage("library").length > 0, "library has a message");
+    T.eq(scanFailureMessage("notfound"), "この商品は登録されていません", "notfound message");
+    T.eq(scanFailureMessage("ratelimit"), "時間をおいて再度お試しください", "ratelimit message is distinct from network");
+    T.ok(scanFailureMessage("network").length > 0, "network has a message");
+    T.ok(scanFailureMessage("network") !== scanFailureMessage("ratelimit"), "network and ratelimit are not the same message");
+
+    var unknown = scanFailureMessage("some-reason-nobody-invented-yet");
+    T.ok(typeof unknown === "string" && unknown.length > 0, "unknown reason still returns a non-empty string, never blank/undefined");
+    T.ok(typeof scanFailureMessage(undefined) === "string" && scanFailureMessage(undefined).length > 0, "undefined reason also falls back to a non-empty string");
   });
 
   var PROFILE = {
@@ -4441,10 +4465,11 @@
     });
   }
 
-  // ---- barcode scanning (Task 2 gate) ----
-  // startBarcodeScan is the permanent interface a later task will build UI on top of.
-  // setupScanTemp and the scanTemp* elements it wires up are throwaway verification
-  // UI for this gate task only; a later cleanup task removes them.
+  // ---- barcode scanning ----
+  // startBarcodeScan is the permanent interface the real entry point (setupScanEntry,
+  // below) is built on. The Task 2 gate task's throwaway verification UI (the
+  // temporary scan button/video/output element it used to prove decoding worked)
+  // has been removed now that this real entry point replaces it.
 
   function offUnitOf(quantityStr) {
     if (typeof quantityStr === "string" && /ml/i.test(quantityStr)) return "ml";
@@ -4680,28 +4705,124 @@
     });
   }
 
-  function setupScanTemp() {
-    var btn = document.getElementById("scanTempBtn");
-    var video = document.getElementById("scanTempVideo");
-    var out = document.getElementById("scanTempOut");
-    if (!btn || !video || !out) return;
-    var stopScan = null;
-    function reset(label) {
-      if (label) out.textContent = label;
-      btn.textContent = "バーコードスキャン(検証用・一時)";
-      video.style.display = "none";
-      stopScan = null;
+  // scanFailureMessage(reason) - the single place that turns a failure reason
+  // into what the user is told. Accepts both vocabularies in play: denied /
+  // camera / library come from the scanner (startBarcodeScan's onError);
+  // notfound / ratelimit / network come from the lookup (fetchOffProduct's
+  // {ok:false, reason}). Always returns a non-empty string, including for a
+  // reason this function does not recognize - a blank message box is worse
+  // than a generic one, and new failure sources should degrade to "something
+  // went wrong, here's what to do" rather than show nothing.
+  function scanFailureMessage(reason) {
+    switch (reason) {
+      case "denied": return "カメラを使えません。番号を入力してください";
+      case "camera": return "カメラを使えません。番号を入力してください";
+      case "library": return "カメラを使えません。番号を入力してください";
+      case "notfound": return "この商品は登録されていません";
+      case "ratelimit": return "時間をおいて再度お試しください";
+      case "network": return "通信できませんでした";
+      default: return "読み取れませんでした。番号を入力してください";
     }
-    btn.addEventListener("click", function () {
-      if (stopScan) { stopScan(); reset("停止しました"); return; }
-      out.textContent = "起動中...";
+  }
+
+  function setScanStatus(msg, kind) {
+    var el = document.getElementById("scan-status");
+    el.textContent = msg || "";
+    el.className = "data-status" + (kind ? " " + kind : "");
+  }
+
+  // handleScanFailure(reason, jan) - routes every failure to a next step,
+  // never a dead end. denied/camera/library (and anything unrecognized, since
+  // those can only originate from the scanner's onError) point back at the
+  // manual JAN field already on screen. notfound/ratelimit/network are lookup
+  // failures on a barcode we DID read, so there is no point retrying the same
+  // request automatically (OFF allows 15 req/min) - hand off to the existing
+  // manual meal-entry form instead, keeping the barcode visible so the user
+  // does not have to read it off the package again.
+  function handleScanFailure(reason, jan) {
+    var msg = scanFailureMessage(reason);
+    setScanStatus(msg, "err");
+    if (reason === "notfound" || reason === "ratelimit" || reason === "network") {
+      var readout = document.getElementById("scan-jan-readout");
+      if (jan) {
+        readout.textContent = "読み取ったバーコード: " + jan;
+        readout.hidden = false;
+      }
+      var nameField = document.getElementById("m-name");
+      if (nameField) nameField.focus();
+      return;
+    }
+    var janInput = document.getElementById("scan-jan-input");
+    if (janInput) janInput.focus();
+  }
+
+  // lookupJan(jan) - the one path both camera scans and manual JAN entry run
+  // through, so there is exactly one place that calls fetchOffProduct.
+  function lookupJan(jan) {
+    setScanStatus("検索中...", "");
+    fetchOffProduct(jan).then(function (r) {
+      if (r.ok) {
+        document.getElementById("scan-jan-readout").hidden = true;
+        setScanStatus("", "");
+        openScanConfirm(r.product, jan);
+        return;
+      }
+      handleScanFailure(r.reason, jan);
+    });
+  }
+
+  var SCAN_HINT_DELAY_MS = 20000;
+
+  function setupScanEntry() {
+    var startBtn = document.getElementById("scan-start-btn");
+    var video = document.getElementById("scan-video");
+    var hint = document.getElementById("scan-hint");
+    var janInput = document.getElementById("scan-jan-input");
+    var janBtn = document.getElementById("scan-jan-btn");
+    var scanStop = null;
+    var hintTimer = null;
+
+    function clearHintTimer() {
+      if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; }
+    }
+
+    // Stops the camera. Used when a read succeeds, a fatal scan error fires,
+    // or the user taps the button again to cancel - never on the 20s hint,
+    // which fires without stopping anything (a read may still succeed).
+    function stopScanning() {
+      if (scanStop) { scanStop(); scanStop = null; }
+      clearHintTimer();
+      hint.hidden = true;
+      video.style.display = "none";
+      startBtn.textContent = "バーコードをスキャン";
+    }
+
+    startBtn.addEventListener("click", function () {
+      if (scanStop) { stopScanning(); return; }
+      setScanStatus("カメラを起動しています...", "");
+      document.getElementById("scan-jan-readout").hidden = true;
       video.style.display = "block";
-      btn.textContent = "停止(検証用・一時)";
-      stopScan = startBarcodeScan(video, function (text) {
-        reset("読み取り結果: " + text);
-      }, function (errName) {
-        reset("エラー: " + errName);
+      startBtn.textContent = "スキャンを止める";
+      hint.hidden = true;
+      clearHintTimer();
+      hintTimer = setTimeout(function () {
+        hint.textContent = "読み取れませんか? 番号を入力できます";
+        hint.hidden = false;
+      }, SCAN_HINT_DELAY_MS);
+
+      scanStop = startBarcodeScan(video, function (text) {
+        stopScanning();
+        lookupJan(text);
+      }, function (reason) {
+        stopScanning();
+        handleScanFailure(reason, null);
       });
+    });
+
+    janBtn.addEventListener("click", function () {
+      var jan = janInput.value.trim();
+      if (!jan) { setScanStatus("バーコード番号を入力してください", "err"); return; }
+      lookupJan(jan);
     });
   }
 
@@ -4957,7 +5078,7 @@
   setupForm();
   setupMealForm();
   setupScanConfirm();
-  setupScanTemp();
+  setupScanEntry();
   setupSettings();
   setupChartToggle();
   setupRecipeModal();
