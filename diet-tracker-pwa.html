@@ -1107,6 +1107,8 @@
     }
   };
 
+  var SELFTEST_CASE_TIMEOUT_MS = 10000;
+
   var SELFTEST = {
     cases: [],
     add: function (name, fn) { SELFTEST.cases.push({ name: name, fn: fn }); },
@@ -1144,12 +1146,34 @@
           return next();
         }
         if (result && typeof result.then === "function") {
-          return result.then(function () {
-            record(c.name, true, "");
-            return next();
-          }, function (e) {
-            record(c.name, false, (e && e.message) || String(e));
-            return next();
+          // A case's promise might never settle (e.g. a hung camera/network
+          // call). Without a timeout that would stall next() forever: every
+          // later case gets silently skipped and document.title never
+          // updates, which looks identical to a page still loading. Race the
+          // case against a timer; a "settled" guard makes sure whichever
+          // resolves first wins and the other is ignored (never let a
+          // timed-out case later also be recorded as a pass).
+          return new Promise(function (resolvePromise) {
+            var settled = false;
+            var timer = setTimeout(function () {
+              if (settled) return;
+              settled = true;
+              record(c.name, false, "timed out after " + (SELFTEST_CASE_TIMEOUT_MS / 1000) + "s");
+              resolvePromise(next());
+            }, SELFTEST_CASE_TIMEOUT_MS);
+            result.then(function () {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              record(c.name, true, "");
+              resolvePromise(next());
+            }, function (e) {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              record(c.name, false, (e && e.message) || String(e));
+              resolvePromise(next());
+            });
           });
         }
         record(c.name, true, "");
@@ -1714,6 +1738,22 @@
       T.eq(result.getText(), "4901005009158", "decoded EAN-13 payload");
       T.eq(result.getBarcodeFormat(), ZXing.BarcodeFormat.EAN_13, "decoded as EAN_13, not misread as another format");
     });
+  });
+
+  // Regression test for the Critical found in review: the brief's own snippet
+  // filtered "not found yet" frames with err.name !== "NotFoundException", but
+  // err.name is a minified single letter in this bundle, so that check never
+  // matched and the scanner died on its very first unsuccessful frame. This
+  // uses the library's own not-found error (the exact object
+  // decodeFromVideoDevice hands to its callback on every unsuccessful frame)
+  // so it exercises the real accessor, not a hand-built stand-in.
+  SELFTEST.add("isNotFoundError recognizes ZXing's own not-found error and rejects real errors", function () {
+    if (typeof ZXing === "undefined" || !ZXing.NotFoundException) {
+      throw new Error("ZXing not loaded");
+    }
+    T.eq(isNotFoundError(ZXing.NotFoundException.getNotFoundInstance()), true, "library's own not-found instance");
+    T.eq(isNotFoundError(new Error("boom")), false, "a real, unrelated error is not swallowed");
+    T.eq(isNotFoundError(null), false, "null is not treated as not-found");
   });
 
   var PROFILE = {
@@ -3993,6 +4033,31 @@
   // startBarcodeScan is the permanent interface a later task will build UI on top of.
   // setupScanTemp and the scanTemp* elements it wires up are throwaway verification
   // UI for this gate task only; a later cleanup task removes them.
+
+  // The brief's own snippet checked err.name !== "NotFoundException", but in this
+  // minified UMD bundle err.name is a mangled single letter (e.g. "N" for
+  // NotFoundException) - that comparison never matches, so every unsuccessful
+  // frame from decodeFromVideoDevice (which fires continuously while nothing is
+  // found yet) was misclassified as a fatal error and the scan died instantly.
+  // Use getKind(), which zxing's Exception classes define specifically to survive
+  // minification (verified against vendor/zxing-0.23.0.umd.min.js: getKind()
+  // returns the real "NotFoundException" string; err.name does not). Fall back to
+  // err.constructor.kind if getKind is ever missing (same underlying value in this
+  // bundle). An error with neither accessor is NOT assumed to be "not found" - it
+  // is treated as a real error, since silently swallowing an unrecognized error
+  // would trade "stops instantly" for "spins forever showing nothing", which is
+  // harder to diagnose.
+  function isNotFoundError(err) {
+    if (!err) return false;
+    if (typeof err.getKind === "function") {
+      try { return err.getKind() === "NotFoundException"; } catch (e) { return false; }
+    }
+    if (err.constructor && err.constructor.kind) {
+      return err.constructor.kind === "NotFoundException";
+    }
+    return false;
+  }
+
   var scanReader = null;
   function startBarcodeScan(videoEl, onResult, onError) {
     var stopped = false;
@@ -4008,8 +4073,8 @@
     scanReader.decodeFromVideoDevice(null, videoEl, function (result, err) {
       if (stopped) return;
       if (result) { stop(); onResult(result.getText()); return; }
-      // err comes on every frame while nothing is found yet, so filter by type
-      if (err && err.name && err.name !== "NotFoundException") { stop(); onError(err.name); }
+      // err comes on every frame while nothing is found yet, so filter those out
+      if (err && !isNotFoundError(err)) { stop(); onError(err.name); }
     })["catch"](function (e) {
       stop();
       onError(e && e.name === "NotAllowedError" ? "denied" : "camera");
