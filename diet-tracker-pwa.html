@@ -375,6 +375,12 @@
   }
   .data-status.ok{ color:var(--cyan); }
   .data-status.err{ color:var(--red); }
+  .data-status-detail{
+    display:block;
+    font-size:10px;
+    color:var(--muted);
+    margin-top:2px;
+  }
 
   /* ---- scan confirm ---- */
   .per100-readout{
@@ -1183,7 +1189,7 @@
   "use strict";
 
   var STORAGE_KEY = "nexra-diet-tracker";
-  var APP_VERSION = "3.1";
+  var APP_VERSION = "3.2";
 
   // ---- self-test harness (activated by ?selftest=1) ----
   var T = {
@@ -2007,7 +2013,7 @@
     });
   });
 
-  SELFTEST.add("fetchOffProduct maps other non-OK HTTP status to reason network", function () {
+  SELFTEST.add("fetchOffProduct maps other non-OK HTTP status to reason network, with the status code in detail", function () {
     var realFetch = window.fetch;
     var calls = [];
     window.fetch = offFetchStubOk(calls, 500, {});
@@ -2016,10 +2022,11 @@
     return p.then(function (r) {
       T.eq(r.ok, false, "not ok");
       T.eq(r.reason, "network", "500 maps to network");
+      T.eq(r.detail, "HTTP 500", "detail carries the status code, not a stack trace or the URL");
     });
   });
 
-  SELFTEST.add("fetchOffProduct maps a rejecting fetch (offline) to reason network", function () {
+  SELFTEST.add("fetchOffProduct maps a rejecting fetch (offline) to reason network, with the error described in detail", function () {
     var realFetch = window.fetch;
     var calls = [];
     window.fetch = offFetchStubReject(calls);
@@ -2028,10 +2035,11 @@
     return p.then(function (r) {
       T.eq(r.ok, false, "not ok");
       T.eq(r.reason, "network", "offline fetch rejection maps to network");
+      T.eq(r.detail, "Error: offline", "detail is a short name+message description of the rejection");
     });
   });
 
-  SELFTEST.add("fetchOffProduct maps malformed JSON (json() rejecting) to reason network without throwing", function () {
+  SELFTEST.add("fetchOffProduct maps malformed JSON (json() rejecting) to reason network without throwing, with detail populated", function () {
     var realFetch = window.fetch;
     var calls = [];
     window.fetch = offFetchStubBadJson(calls, 200);
@@ -2040,6 +2048,29 @@
     return p.then(function (r) {
       T.eq(r.ok, false, "not ok");
       T.eq(r.reason, "network", "malformed JSON maps to network, not left unresolved or thrown");
+      T.eq(r.detail, "Error: malformed json", "detail describes the json() rejection");
+    });
+  });
+
+  SELFTEST.add("fetchOffProduct maps an exception thrown while handling a good response to its own reason, parseerror - never reported as network", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    // A response whose body is valid JSON and reaches parseOffProduct, but
+    // whose `product` property throws when read - this reproduces "the HTTP
+    // layer succeeded, but our own code blew up handling it" without needing
+    // to touch parseOffProduct itself.
+    var throwingBody = { status: 1 };
+    Object.defineProperty(throwingBody, "product", {
+      get: function () { throw new Error("boom"); }
+    });
+    window.fetch = offFetchStubOk(calls, 200, throwingBody);
+    var p = fetchOffProduct("111");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, false, "not ok");
+      T.eq(r.reason, "parseerror", "an exception while handling a good response gets its own reason");
+      T.ok(r.reason !== "network", "must not be misreported as a network failure - that sends debugging the wrong way");
+      T.eq(r.detail, "Error: boom", "detail describes the exception");
     });
   });
 
@@ -2196,7 +2227,7 @@
     }
   });
 
-  SELFTEST.add("scanFailureMessage covers both failure vocabularies (scanner: denied/camera/library, lookup: notfound/ratelimit/network) and falls back for an unknown reason", function () {
+  SELFTEST.add("scanFailureMessage covers both failure vocabularies (scanner: denied/camera/library, lookup: notfound/ratelimit/network/parseerror) and falls back for an unknown reason", function () {
     T.ok(scanFailureMessage("denied").length > 0, "denied has a message");
     T.ok(scanFailureMessage("camera").length > 0, "camera has a message");
     T.ok(scanFailureMessage("library").length > 0, "library has a message");
@@ -2204,10 +2235,25 @@
     T.eq(scanFailureMessage("ratelimit"), "時間をおいて再度お試しください", "ratelimit message is distinct from network");
     T.ok(scanFailureMessage("network").length > 0, "network has a message");
     T.ok(scanFailureMessage("network") !== scanFailureMessage("ratelimit"), "network and ratelimit are not the same message");
+    T.ok(scanFailureMessage("parseerror").length > 0, "parseerror has a message");
+    T.ok(scanFailureMessage("parseerror") !== scanFailureMessage("network"), "parseerror has its own wording, distinct from network - its cause is a bug, not a connection problem");
 
     var unknown = scanFailureMessage("some-reason-nobody-invented-yet");
     T.ok(typeof unknown === "string" && unknown.length > 0, "unknown reason still returns a non-empty string, never blank/undefined");
     T.ok(typeof scanFailureMessage(undefined) === "string" && scanFailureMessage(undefined).length > 0, "undefined reason also falls back to a non-empty string");
+  });
+
+  SELFTEST.add("setScanStatus renders an optional detail as a separate, escaped secondary line under the message", function () {
+    var el = document.getElementById("scan-status");
+    setScanStatus("通信できませんでした", "err", 'TypeError: Load failed <script>');
+    T.ok(el.innerHTML.indexOf("通信できませんでした") >= 0, "human message is present");
+    T.ok(el.innerHTML.indexOf('class="data-status-detail"') >= 0, "detail is wrapped in its own element for secondary styling");
+    T.ok(el.innerHTML.indexOf("TypeError: Load failed") >= 0, "detail text is present");
+    T.ok(el.innerHTML.indexOf("<script>") === -1, "detail is HTML-escaped, not injected raw");
+    T.ok(el.textContent.indexOf("<script>") >= 0, "the escaped markup still reads as literal text to the user");
+
+    setScanStatus("検索中...", "");
+    T.eq(el.innerHTML.indexOf("data-status-detail") >= 0, false, "no detail element when detail is omitted");
   });
 
   var PROFILE = {
@@ -4527,24 +4573,50 @@
       ".json?fields=" + OFF_FIELDS + "&app_name=diet-tracker&app_version=" + APP_VERSION;
   }
 
+  // A short, one-line technical string for the detail field below - an error
+  // name+message ("TypeError: Load failed") or a status code ("HTTP 503").
+  // Deliberately not the full URL or a stack trace: this is meant to be read
+  // off a phone screen and reported back, not to be a full crash report.
+  function describeError(e) {
+    if (e && e.name && e.message) return e.name + ": " + e.message;
+    if (e && typeof e.message === "string" && e.message) return e.message;
+    return String(e);
+  }
+
   // Maps a lookup to one of a small set of outcomes the UI (Task 5) can act
-  // on directly: {ok:true, product} or {ok:false, reason:"notfound"|"ratelimit"|"network"}.
+  // on directly: {ok:true, product} or {ok:false, reason, detail}, where
+  // reason is "notfound" | "ratelimit" | "network" | "parseerror".
   // No automatic retries here on purpose - OFF's limit is 15 req/min, and a
   // retry storm on failure would burn that budget for no benefit; a human
   // retry (re-scan / tap again) is the right recovery path.
-  // Malformed JSON (res.json() rejecting) is folded into "network": at that
-  // point we have a response but can't trust its body, which is the same
-  // situation the catch-all below exists for, and inventing a fourth reason
-  // the UI would have to special-case buys nothing over "network".
+  // "network" covers three distinct causes that all amount to "we could not
+  // get, or could not trust, a response body": fetch() itself rejecting
+  // (offline/CORS/blocked - the outer catch), a non-OK HTTP status (detail
+  // carries "HTTP <status>"), and res.json() rejecting on a malformed body.
+  // "parseerror" is different in kind: the HTTP response WAS good and valid
+  // JSON, but something in this code still threw while turning it into a
+  // product (e.g. a bug in parseOffProduct). That is our bug, not a
+  // connection problem, so it must never be folded into "network" - doing
+  // so would send anyone debugging a real crash looking for a network
+  // outage that never happened. Every {ok:false} result carries a short
+  // `detail` string (see describeError) so a failure on a device we cannot
+  // attach devtools to (e.g. the owner's iPhone) can still be read off the
+  // screen and reported back verbatim.
   function fetchOffProduct(jan) {
     return fetch(offProductUrl(jan)).then(function (res) {
       if (res.status === 429) return { ok: false, reason: "ratelimit" };
-      if (!res.ok) return { ok: false, reason: "network" };
+      if (!res.ok) return { ok: false, reason: "network", detail: "HTTP " + res.status };
       return res.json().then(function (json) {
-        var p = parseOffProduct(json, jan);
-        return p ? { ok: true, product: p } : { ok: false, reason: "notfound" };
+        try {
+          var p = parseOffProduct(json, jan);
+          return p ? { ok: true, product: p } : { ok: false, reason: "notfound" };
+        } catch (e) {
+          return { ok: false, reason: "parseerror", detail: describeError(e) };
+        }
+      }, function (e) {
+        return { ok: false, reason: "network", detail: describeError(e) };
       });
-    })["catch"](function () { return { ok: false, reason: "network" }; });
+    })["catch"](function (e) { return { ok: false, reason: "network", detail: describeError(e) }; });
   }
 
   // The brief's own snippet checked err.name !== "NotFoundException", but in this
@@ -4726,8 +4798,8 @@
   // scanFailureMessage(reason) - the single place that turns a failure reason
   // into what the user is told. Accepts both vocabularies in play: denied /
   // camera / library come from the scanner (startBarcodeScan's onError);
-  // notfound / ratelimit / network come from the lookup (fetchOffProduct's
-  // {ok:false, reason}). Always returns a non-empty string, including for a
+  // notfound / ratelimit / network / parseerror come from the lookup
+  // (fetchOffProduct's {ok:false, reason}). Always returns a non-empty string, including for a
   // reason this function does not recognize - a blank message box is worse
   // than a generic one, and new failure sources should degrade to "something
   // went wrong, here's what to do" rather than show nothing.
@@ -4739,28 +4811,39 @@
       case "notfound": return "この商品は登録されていません";
       case "ratelimit": return "時間をおいて再度お試しください";
       case "network": return "通信できませんでした";
+      case "parseerror": return "アプリ内でエラーが発生しました";
       default: return "読み取れませんでした。番号を入力してください";
     }
   }
 
-  function setScanStatus(msg, kind) {
+  // setScanStatus(msg, kind, detail) - detail is an optional short technical
+  // string (see describeError/fetchOffProduct) shown as a small secondary
+  // line under the human-readable message, so a failure on a device we
+  // cannot inspect (e.g. a phone) can still be read off the screen and
+  // reported back. Both msg and detail go through escapeHtml before being
+  // placed in innerHTML - msg is always a static string from this file
+  // today, but detail can carry text from a real Error's name/message, so
+  // it must be escaped.
+  function setScanStatus(msg, kind, detail) {
     var el = document.getElementById("scan-status");
-    el.textContent = msg || "";
+    var html = msg ? escapeHtml(msg) : "";
+    if (detail) html += '<span class="data-status-detail">' + escapeHtml(detail) + "</span>";
+    el.innerHTML = html;
     el.className = "data-status" + (kind ? " " + kind : "");
   }
 
   // handleScanFailure(reason, jan) - routes every failure to a next step,
   // never a dead end. denied/camera/library (and anything unrecognized, since
   // those can only originate from the scanner's onError) point back at the
-  // manual JAN field already on screen. notfound/ratelimit/network are lookup
-  // failures on a barcode we DID read, so there is no point retrying the same
+  // manual JAN field already on screen. notfound/ratelimit/network/parseerror
+  // are lookup failures on a barcode we DID read, so there is no point retrying the same
   // request automatically (OFF allows 15 req/min) - hand off to the existing
   // manual meal-entry form instead, keeping the barcode visible so the user
   // does not have to read it off the package again.
-  function handleScanFailure(reason, jan) {
+  function handleScanFailure(reason, jan, detail) {
     var msg = scanFailureMessage(reason);
-    setScanStatus(msg, "err");
-    if (reason === "notfound" || reason === "ratelimit" || reason === "network") {
+    setScanStatus(msg, "err", detail);
+    if (reason === "notfound" || reason === "ratelimit" || reason === "network" || reason === "parseerror") {
       var readout = document.getElementById("scan-jan-readout");
       if (jan) {
         readout.textContent = "読み取ったバーコード: " + jan;
@@ -4785,7 +4868,7 @@
         openScanConfirm(r.product, jan);
         return;
       }
-      handleScanFailure(r.reason, jan);
+      handleScanFailure(r.reason, jan, r.detail);
     });
   }
 
