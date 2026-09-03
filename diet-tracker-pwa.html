@@ -376,6 +376,41 @@
   .data-status.ok{ color:var(--cyan); }
   .data-status.err{ color:var(--red); }
 
+  /* ---- scan confirm ---- */
+  .per100-readout{
+    font-size:12px;
+    color:var(--muted);
+    font-family:var(--mono);
+  }
+  .field-override{
+    display:flex;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:8px;
+    font-size:11px;
+    color:var(--muted);
+  }
+  .field-override button{
+    background:none;
+    border:none;
+    color:var(--cyan);
+    font-size:11px;
+    font-weight:600;
+    cursor:pointer;
+    padding:0;
+    text-decoration:underline;
+  }
+  .off-attribution{
+    font-size:11px;
+    color:var(--muted);
+    line-height:1.6;
+    padding:8px 10px;
+    border:1px solid var(--border2);
+    border-radius:8px;
+    background:#0E141A;
+  }
+  .off-attribution a{ color:var(--cyan); }
+
   /* ---- history ---- */
   .history-list{
     display:flex;
@@ -930,6 +965,74 @@
     <h2 class="section-title">食事を追加</h2>
     <div class="panel">
       <div class="food-chips" id="foodChips"></div>
+      <!-- Barcode scan entry point (Task 6). Camera scan and manual JAN entry
+           both feed the same fetchOffProduct() lookup path; every failure
+           (camera-side or lookup-side) is handled so the user always lands
+           somewhere they can still record their meal - see scanFailureMessage
+           and handleScanFailure() below. -->
+      <div class="panel" id="scanPanel" style="margin-bottom:10px;">
+        <button type="button" class="btn full" id="scan-start-btn">バーコードをスキャン</button>
+        <video id="scan-video" autoplay muted playsinline style="width:100%;max-width:320px;margin-top:8px;display:none;"></video>
+        <div class="data-status" id="scan-hint" hidden></div>
+        <div class="field" style="margin-top:8px;">
+          <label for="scan-jan-input">JANコードを入力</label>
+          <input type="text" inputmode="numeric" id="scan-jan-input" placeholder="例: 4901005009158">
+        </div>
+        <button type="button" class="btn secondary full" id="scan-jan-btn">この番号で調べる</button>
+        <div class="data-status" id="scan-jan-readout" hidden></div>
+        <div class="data-status" id="scan-status"></div>
+      </div>
+
+      <!-- Scan confirm screen (Task 5): the only path that turns a scanned
+           product's per-100g values into a logged meal. Hidden until
+           openScanConfirm() is called with a looked-up product. -->
+      <div class="panel" id="scanConfirmPanel" hidden style="margin-bottom:10px;">
+        <div class="form-row">
+          <div class="field">
+            <label for="sc-name">商品名(編集可)</label>
+            <input type="text" id="sc-name" placeholder="商品名">
+          </div>
+          <div class="per100-readout" id="sc-per100"></div>
+          <div class="field">
+            <label for="sc-qty">分量 (<span id="sc-unit">g</span>)</label>
+            <input type="number" id="sc-qty" min="0" step="1" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="sc-kcal">カロリー (kcal・分量から自動計算、手入力で上書き可)</label>
+            <input type="number" id="sc-kcal" min="0" step="1" inputmode="numeric">
+            <div class="field-override" id="sc-kcal-overridden" hidden>
+              <span>手入力した値です(分量を変えても自動更新されません)</span>
+              <button type="button" id="sc-kcal-reset">自動計算に戻す</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="sc-protein">タンパク質 (g・任意・分量から自動計算、手入力で上書き可)</label>
+            <input type="number" id="sc-protein" min="0" step="1" inputmode="numeric" placeholder="g">
+            <div class="field-override" id="sc-protein-overridden" hidden>
+              <span>手入力した値です(分量を変えても自動更新されません)</span>
+              <button type="button" id="sc-protein-reset">自動計算に戻す</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="sc-time">食事帯</label>
+            <select id="sc-time">
+              <option value="breakfast">朝食</option>
+              <option value="lunch">昼食</option>
+              <option value="dinner">夕食</option>
+              <option value="snack">間食</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sc-date">日付</label>
+            <input type="date" id="sc-date">
+          </div>
+          <div id="sc-attribution"></div>
+          <button type="button" class="btn full" id="sc-confirm-btn">記録に追加</button>
+          <button type="button" class="btn secondary full" id="sc-cancel-btn">やめる</button>
+          <div class="data-status" id="sc-status"></div>
+        </div>
+      </div>
+
       <form id="mealForm">
         <div class="form-row">
           <div class="field">
@@ -986,6 +1089,7 @@
     <div class="panel" id="dataManagementPanel">
       <div class="data-actions">
         <p class="data-hint">記録と設定をJSONファイルに書き出せます。端末変更やlocalStorage消失に備えて、定期的なエクスポートをおすすめします。</p>
+        <p class="data-hint" id="scanPrivacyNotice">バーコードスキャン機能は、読み取ったバーコードを Open Food Facts に送信します。体重・食事の記録が送信されることはありません。</p>
         <button type="button" class="btn secondary full" id="exportBtn">JSONをエクスポート</button>
         <button type="button" class="btn secondary full" id="importBtn">JSONからインポート</button>
         <input type="file" id="importFile" accept="application/json,.json" style="display:none">
@@ -1073,12 +1177,13 @@
   </div>
 </div>
 
+<script src="./vendor/zxing-0.23.0.umd.min.js"></script>
 <script>
 (function(){
   "use strict";
 
   var STORAGE_KEY = "nexra-diet-tracker";
-  var APP_VERSION = "3.0";
+  var APP_VERSION = "3.1";
 
   // ---- self-test harness (activated by ?selftest=1) ----
   var T = {
@@ -1099,25 +1204,79 @@
     }
   };
 
+  var SELFTEST_CASE_TIMEOUT_MS = 10000;
+
   var SELFTEST = {
     cases: [],
     add: function (name, fn) { SELFTEST.cases.push({ name: name, fn: fn }); },
+    // Cases are normally synchronous (fn() runs and either returns or throws).
+    // A case may instead return a promise (e.g. a real decodeFromImageUrl call) -
+    // run() awaits it before moving to the next case, and the summary is only
+    // rendered once every case, sync or async, has settled. run() itself always
+    // returns a promise; callers that only care about the DOM/title being
+    // finished (as opposed to reading run()'s own resolved value) can ignore it.
     run: function () {
       var passed = 0, failed = 0, rows = "";
-      SELFTEST.cases.forEach(function (c) {
-        var ok = true, err = "";
-        try { c.fn(); } catch (e) { ok = false; err = e.message; }
+      function record(name, ok, err) {
         if (ok) { passed++; } else { failed++; }
         rows += '<div style="padding:6px 10px;border-bottom:1px solid #333;color:' +
-          (ok ? "#7ddb7d" : "#ff6b6b") + '">' + (ok ? "PASS" : "FAIL") + " — " + c.name +
+          (ok ? "#7ddb7d" : "#ff6b6b") + '">' + (ok ? "PASS" : "FAIL") + " — " + name +
           (ok ? "" : '<div style="color:#ffb4b4;font-size:12px;margin-top:4px">' + err + "</div>") + "</div>";
-      });
-      document.body.innerHTML =
-        '<div style="font-family:monospace;background:#111;color:#eee;min-height:100vh;padding:16px">' +
-        '<h1 style="font-size:18px">selftest: ' + passed + " passed, " + failed + " failed</h1>" +
-        rows + "</div>";
-      document.title = (failed === 0 ? "PASS" : "FAIL") + " selftest (" + passed + "/" + (passed + failed) + ")";
-      return failed === 0;
+      }
+      function finish() {
+        document.body.innerHTML =
+          '<div style="font-family:monospace;background:#111;color:#eee;min-height:100vh;padding:16px">' +
+          '<h1 style="font-size:18px">selftest: ' + passed + " passed, " + failed + " failed</h1>" +
+          rows + "</div>";
+        document.title = (failed === 0 ? "PASS" : "FAIL") + " selftest (" + passed + "/" + (passed + failed) + ")";
+        return failed === 0;
+      }
+      var i = 0;
+      function next() {
+        if (i >= SELFTEST.cases.length) return Promise.resolve(finish());
+        var c = SELFTEST.cases[i++];
+        var result;
+        try {
+          result = c.fn();
+        } catch (e) {
+          record(c.name, false, e.message);
+          return next();
+        }
+        if (result && typeof result.then === "function") {
+          // A case's promise might never settle (e.g. a hung camera/network
+          // call). Without a timeout that would stall next() forever: every
+          // later case gets silently skipped and document.title never
+          // updates, which looks identical to a page still loading. Race the
+          // case against a timer; a "settled" guard makes sure whichever
+          // resolves first wins and the other is ignored (never let a
+          // timed-out case later also be recorded as a pass).
+          return new Promise(function (resolvePromise) {
+            var settled = false;
+            var timer = setTimeout(function () {
+              if (settled) return;
+              settled = true;
+              record(c.name, false, "timed out after " + (SELFTEST_CASE_TIMEOUT_MS / 1000) + "s");
+              resolvePromise(next());
+            }, SELFTEST_CASE_TIMEOUT_MS);
+            result.then(function () {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              record(c.name, true, "");
+              resolvePromise(next());
+            }, function (e) {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              record(c.name, false, (e && e.message) || String(e));
+              resolvePromise(next());
+            });
+          });
+        }
+        record(c.name, true, "");
+        return next();
+      }
+      return next();
     }
   };
 
@@ -1359,6 +1518,23 @@
     }
     T.ok(!!calledWithKeys, "clicking backupBtn invoked downloadBackup, which called firstStoredValue");
     T.deepEq(calledWithKeys, [BACKUP_KEY_V1, BACKUP_KEY_CORRUPT], "downloadBackup looks up the real backup keys, in priority order");
+  });
+
+  // Prior-notice requirement from the spec's 法的義務・制約 section: the fact
+  // that scanning sends data off-device must be visible in the データ管理
+  // panel, not only on the confirm screen (which a user only sees after the
+  // barcode has already been sent). This asserts on a stable substring
+  // ("Open Food Facts" in the panel's text) rather than the exact sentence,
+  // so a future wording tweak doesn't break the test - but it does fail if
+  // the notice is deleted entirely.
+  SELFTEST.add("データ管理 panel discloses that barcode scanning sends data to Open Food Facts", function () {
+    var panel = document.getElementById("dataManagementPanel");
+    T.ok(!!panel, "データ管理 panel exists");
+    var notice = document.getElementById("scanPrivacyNotice");
+    T.ok(!!notice, "scan privacy notice element exists");
+    T.ok(panel.contains(notice), "notice actually lives inside the データ管理 panel");
+    T.ok(!notice.hidden, "notice is not hidden behind a toggle");
+    T.ok(notice.textContent.indexOf("Open Food Facts") >= 0, "notice mentions Open Food Facts");
   });
 
   SELFTEST.add("addOrUpdateLog merges instead of replacing", function () {
@@ -1651,6 +1827,387 @@
     T.eq(metricLogs("protein")[0].protein, 40, "protein derived");
     T.eq(metricLogs("weight").length, 2, "weight series unchanged");
     state.logs = saved;
+  });
+
+  // Test fixture: a 357x192 1-bit PNG rendering of a valid EAN-13 barcode for
+  // "4901005009158", generated outside the browser (this vendored ZXing 0.23.0
+  // UMD build has no 1-D writer - only AztecCodeWriter/DataMatrixWriter/QRCodeWriter
+  // are compiled in, so it cannot encode EAN_13 itself - see Task 2 report). This
+  // is a test-only fixture; it is not used by the app's own scanning code.
+  var SCAN_FIXTURE_EAN13_PNG =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAWUAAADAAQAAAAD0WE//AAAAdElEQVR42u3ZsQ2CQBiG4TtC4RKX3Bp0rgQLKC6gK9E5CBPQ" +
+    "/cVFV4DChJjnrZ/qa7/8SfuLLh2Jpk+ht3cbh9ZFfUWZop+vZVrqM7fxUh9RbnndUrlbkKZpmqZpmqZpmqZpmqZpmqZpmqbp3+rsn6f/WH8BZ4gW3840" +
+    "R3EAAAAASUVORK5CYII=";
+
+  // Genuinely async: decodeFromImageUrl returns a promise, so this case returns
+  // one too. SELFTEST.run() awaits it (see the harness above) before rendering
+  // the summary - a synchronous assertion here would pass vacuously without
+  // ever having decoded anything.
+  SELFTEST.add("ZXing decodes a real EAN-13 image (bundled decoder proven against a real barcode, not just a synthetic round trip)", function () {
+    if (typeof ZXing === "undefined" || !ZXing.BrowserMultiFormatReader) {
+      throw new Error("ZXing not loaded");
+    }
+    var reader = new ZXing.BrowserMultiFormatReader();
+    return reader.decodeFromImageUrl(SCAN_FIXTURE_EAN13_PNG).then(function (result) {
+      T.eq(result.getText(), "4901005009158", "decoded EAN-13 payload");
+      T.eq(result.getBarcodeFormat(), ZXing.BarcodeFormat.EAN_13, "decoded as EAN_13, not misread as another format");
+    });
+  });
+
+  // Regression test for the Critical found in review: the brief's own snippet
+  // filtered "not found yet" frames with err.name !== "NotFoundException", but
+  // err.name is a minified single letter in this bundle, so that check never
+  // matched and the scanner died on its very first unsuccessful frame. This
+  // uses the library's own not-found error (the exact object
+  // decodeFromVideoDevice hands to its callback on every unsuccessful frame)
+  // so it exercises the real accessor, not a hand-built stand-in.
+  SELFTEST.add("isNotFoundError recognizes ZXing's own not-found error and rejects real errors", function () {
+    if (typeof ZXing === "undefined" || !ZXing.NotFoundException) {
+      throw new Error("ZXing not loaded");
+    }
+    T.eq(isNotFoundError(ZXing.NotFoundException.getNotFoundInstance()), true, "library's own not-found instance");
+    T.eq(isNotFoundError(new Error("boom")), false, "a real, unrelated error is not swallowed");
+    T.eq(isNotFoundError(null), false, "null is not treated as not-found");
+  });
+
+  var OFF_FIXTURE_NAGEWA = { status: 1, product: {
+    product_name: "nagewa Uma shio aji", product_name_ja: "やげわ うま塩味",
+    quantity: "67g", product_quantity: 67, serving_size: "67 g", serving_quantity: 67,
+    nutriments: { "energy-kcal_100g": 547.761194029851, proteins_100g: 2.53731343283582 } } };
+  var OFF_FIXTURE_POCKY = { status: 1, product: {
+    product_name: "Pocky chocolate", product_name_ja: "Pocky chocolate",
+    quantity: null, product_quantity: null, serving_size: "29 g", serving_quantity: 29,
+    nutriments: { "energy-kcal_100g": 489.655172413793, proteins_100g: 8.96551724137931 } } };
+  var OFF_FIXTURE_TEA = { status: 1, product: {
+    product_name: "Gogo no kocha Straight Tea", product_name_ja: null,
+    quantity: "500 ml", product_quantity: 500, serving_size: null, serving_quantity: null,
+    nutriments: { "energy-kcal_100g": 15, proteins_100g: 0 } } };
+
+  SELFTEST.add("parseOffProduct prefers serving quantity as the default portion", function () {
+    var p = parseOffProduct(OFF_FIXTURE_NAGEWA, "4901940200641");
+    T.eq(p.defaultQty, 67, "serving_quantity wins");
+    T.eq(p.unit, "g", "unit from quantity string");
+    T.eq(p.name, "やげわ うま塩味", "japanese name preferred");
+    T.eq(p.productUrl, "https://world.openfoodfacts.org/product/4901940200641", "product url");
+  });
+
+  SELFTEST.add("parseOffProduct falls back to package quantity, and detects ml", function () {
+    var p = parseOffProduct(OFF_FIXTURE_TEA, "4909411076610");
+    T.eq(p.defaultQty, 500, "product_quantity used when no serving");
+    T.eq(p.unit, "ml", "ml detected from '500 ml'");
+    T.eq(p.name, "Gogo no kocha Straight Tea", "falls back to product_name");
+  });
+
+  SELFTEST.add("parseOffProduct handles a missing package quantity", function () {
+    var p = parseOffProduct(OFF_FIXTURE_POCKY, "4901005009158");
+    T.eq(p.defaultQty, 29, "serving_quantity still wins");
+    T.eq(p.unit, "g", "defaults to g when no quantity string");
+  });
+
+  SELFTEST.add("parseOffProduct never fabricates missing nutrients", function () {
+    var bare = { status: 1, product: { product_name: "X", nutriments: {} } };
+    var p = parseOffProduct(bare, "111");
+    T.eq(p.kcalPer100, undefined, "no kcal invented");
+    T.eq(p.proteinPer100, undefined, "no protein invented");
+    T.eq(p.defaultQty, undefined, "no quantity invented");
+    T.eq(p.name, "X", "name still read");
+  });
+
+  SELFTEST.add("parseOffProduct returns null for a product that is not listed", function () {
+    T.eq(parseOffProduct({ status: 0 }, "111"), null, "status 0");
+    T.eq(parseOffProduct(null, "111"), null, "null payload");
+    T.eq(parseOffProduct({}, "111"), null, "empty payload");
+  });
+
+  SELFTEST.add("parseOffProduct falls back to the barcode when there is no name", function () {
+    var p = parseOffProduct({ status: 1, product: { nutriments: {} } }, "4901005009158");
+    T.eq(p.name, "4901005009158", "barcode used as the name");
+  });
+
+  SELFTEST.add("computeFromPer100 scales and rounds", function () {
+    T.eq(computeFromPer100(547.761194029851, 67), 367, "matches OFF's own serving value");
+    T.eq(computeFromPer100(15, 500), 75, "whole bottle");
+    T.eq(computeFromPer100(489.655172413793, 29), 142, "matches OFF's own serving value");
+    T.eq(computeFromPer100(undefined, 67), undefined, "missing per-100 stays missing");
+    T.eq(computeFromPer100(100, 0), 0, "zero quantity is a real zero");
+    T.eq(computeFromPer100(100, undefined), undefined, "missing quantity stays missing");
+  });
+
+  // Helpers for the fetchOffProduct tests below. Each stub is installed on
+  // window.fetch and restored synchronously right after fetchOffProduct(jan)
+  // is invoked - fetch() is called synchronously inside fetchOffProduct, so
+  // by the time fetchOffProduct() returns, the stub has already done its one
+  // job (capture the URL, hand back a response promise). Restoring
+  // window.fetch immediately, before any assertion runs, means a failing
+  // T.eq/T.ok later in the test can never leave window.fetch pointed at a
+  // stub - there is no assertion in between that could throw and skip it.
+  function offFetchStubOk(calls, status, body) {
+    return function (url) {
+      calls.push(url);
+      return Promise.resolve({
+        status: status, ok: status >= 200 && status < 300,
+        json: function () { return Promise.resolve(body); }
+      });
+    };
+  }
+  function offFetchStubBadJson(calls, status) {
+    return function (url) {
+      calls.push(url);
+      return Promise.resolve({
+        status: status, ok: status >= 200 && status < 300,
+        json: function () { return Promise.reject(new Error("malformed json")); }
+      });
+    };
+  }
+  function offFetchStubReject(calls) {
+    return function (url) {
+      calls.push(url);
+      return Promise.reject(new Error("offline"));
+    };
+  }
+
+  SELFTEST.add("fetchOffProduct resolves {ok:true, product} for a real product, with a well-formed request URL", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    window.fetch = offFetchStubOk(calls, 200, OFF_FIXTURE_NAGEWA);
+    var p = fetchOffProduct("4901940200641");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, true, "ok true for a real product");
+      T.eq(r.product.name, "やげわ うま塩味", "product mapped via parseOffProduct");
+      T.eq(r.product.defaultQty, 67, "defaultQty passed through");
+      T.eq(r.product.kcalPer100, 547.761194029851, "kcalPer100 passed through");
+      T.ok(calls[0].indexOf("/api/v2/product/4901940200641.json") >= 0, "barcode in path");
+      T.ok(calls[0].indexOf("app_name=diet-tracker") >= 0, "app_name is sent");
+      T.ok(calls[0].indexOf("fields=" + OFF_FIELDS) >= 0, "full fields list is sent");
+    });
+  });
+
+  SELFTEST.add("fetchOffProduct maps HTTP 200 with status:0 (not listed) to reason notfound", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    window.fetch = offFetchStubOk(calls, 200, { status: 0 });
+    var p = fetchOffProduct("0000000000000");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, false, "not ok");
+      T.eq(r.reason, "notfound", "status:0 payload maps to notfound");
+    });
+  });
+
+  SELFTEST.add("fetchOffProduct maps HTTP 429 to reason ratelimit", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    window.fetch = offFetchStubOk(calls, 429, {});
+    var p = fetchOffProduct("111");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, false, "not ok");
+      T.eq(r.reason, "ratelimit", "429 maps to ratelimit");
+    });
+  });
+
+  SELFTEST.add("fetchOffProduct maps other non-OK HTTP status to reason network", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    window.fetch = offFetchStubOk(calls, 500, {});
+    var p = fetchOffProduct("111");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, false, "not ok");
+      T.eq(r.reason, "network", "500 maps to network");
+    });
+  });
+
+  SELFTEST.add("fetchOffProduct maps a rejecting fetch (offline) to reason network", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    window.fetch = offFetchStubReject(calls);
+    var p = fetchOffProduct("111");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, false, "not ok");
+      T.eq(r.reason, "network", "offline fetch rejection maps to network");
+    });
+  });
+
+  SELFTEST.add("fetchOffProduct maps malformed JSON (json() rejecting) to reason network without throwing", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    window.fetch = offFetchStubBadJson(calls, 200);
+    var p = fetchOffProduct("111");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, false, "not ok");
+      T.eq(r.reason, "network", "malformed JSON maps to network, not left unresolved or thrown");
+    });
+  });
+
+  function scanConfirmTestProduct() {
+    return { name: "テスト商品", unit: "g", kcalPer100: 200, proteinPer100: 10, productUrl: "https://world.openfoodfacts.org/product/1" };
+  }
+
+  SELFTEST.add("renderScanConfirm recomputes kcal/protein from the portion when neither field is overridden", function () {
+    var saved = scanState;
+    scanState = { product: scanConfirmTestProduct(), jan: "1", kcalOverridden: false, proteinOverridden: false };
+    document.getElementById("sc-qty").value = "150";
+    renderScanConfirm();
+    T.eq(document.getElementById("sc-kcal").value, "300", "150g of 200kcal/100g");
+    T.eq(document.getElementById("sc-protein").value, "15", "150g of 10g/100g protein");
+
+    document.getElementById("sc-qty").value = "50";
+    renderScanConfirm();
+    T.eq(document.getElementById("sc-kcal").value, "100", "kcal recomputes when the portion changes");
+    T.eq(document.getElementById("sc-protein").value, "5", "protein recomputes when the portion changes");
+    scanState = saved;
+  });
+
+  // Under ?selftest=1 the app's own init short-circuits before setupScanConfirm()
+  // ever runs (see the `if (...selftest...) { SELFTEST.run(); return; }` guard near
+  // the bottom of the file), so sc-kcal/sc-protein/sc-kcal-reset have no listeners
+  // yet at this point in a real run. This test attaches the exact same listeners
+  // setupScanConfirm() would, so it exercises the real wiring (not just the
+  // renderScanConfirm state machine) without needing to run the whole app.
+  SELFTEST.add("overriding kcal freezes it against portion changes without freezing protein, and the reset button un-freezes it", function () {
+    var saved = scanState;
+    scanState = { product: scanConfirmTestProduct(), jan: "1", kcalOverridden: false, proteinOverridden: false };
+    document.getElementById("sc-qty").value = "100";
+    renderScanConfirm();
+    T.eq(document.getElementById("sc-kcal").value, "200", "sanity: initial computed kcal");
+
+    var kcalInput = document.getElementById("sc-kcal");
+    kcalInput.addEventListener("input", function () {
+      if (!scanState) return;
+      scanState.kcalOverridden = true;
+      renderScanConfirm();
+    });
+    var resetBtn = document.getElementById("sc-kcal-reset");
+    resetBtn.addEventListener("click", function () {
+      if (!scanState) return;
+      scanState.kcalOverridden = false;
+      renderScanConfirm();
+    });
+
+    // The user types over the kcal field by hand.
+    kcalInput.value = "999";
+    kcalInput.dispatchEvent(new Event("input", { bubbles: true }));
+    T.eq(scanState.kcalOverridden, true, "kcal input listener sets the override flag");
+    T.eq(scanState.proteinOverridden, false, "protein's flag is untouched by editing kcal");
+    T.eq(document.getElementById("sc-kcal-overridden").hidden, false, "override indicator shown for kcal");
+    T.eq(document.getElementById("sc-protein-overridden").hidden, true, "override indicator stays hidden for protein");
+
+    // Changing the portion must not silently overwrite the overridden value.
+    document.getElementById("sc-qty").value = "50";
+    renderScanConfirm();
+    T.eq(document.getElementById("sc-kcal").value, "999", "overridden kcal survives a portion change");
+    T.eq(document.getElementById("sc-protein").value, "5", "protein (not overridden) still recomputes: 50g of 10g/100g");
+
+    // The reset control clears the override and recomputes immediately.
+    resetBtn.click();
+    T.eq(scanState.kcalOverridden, false, "reset clears the override flag");
+    T.eq(document.getElementById("sc-kcal").value, "100", "kcal recomputed from the current portion: 50g of 200kcal/100g");
+    T.eq(document.getElementById("sc-kcal-overridden").hidden, true, "override indicator hides again after reset");
+    scanState = saved;
+  });
+
+  SELFTEST.add("overriding protein does not freeze kcal, and kcal keeps recomputing while protein stays overridden", function () {
+    var saved = scanState;
+    scanState = { product: scanConfirmTestProduct(), jan: "1", kcalOverridden: false, proteinOverridden: false };
+    document.getElementById("sc-qty").value = "100";
+    renderScanConfirm();
+
+    var proteinInput = document.getElementById("sc-protein");
+    proteinInput.addEventListener("input", function () {
+      if (!scanState) return;
+      scanState.proteinOverridden = true;
+      renderScanConfirm();
+    });
+    proteinInput.value = "77";
+    proteinInput.dispatchEvent(new Event("input", { bubbles: true }));
+    T.eq(scanState.proteinOverridden, true, "protein input listener sets its own override flag");
+    T.eq(scanState.kcalOverridden, false, "kcal's flag is untouched by editing protein (independence, other direction)");
+
+    document.getElementById("sc-qty").value = "200";
+    renderScanConfirm();
+    T.eq(document.getElementById("sc-kcal").value, "400", "kcal keeps recomputing even though protein is overridden: 200g of 200kcal/100g");
+    T.eq(document.getElementById("sc-protein").value, "77", "overridden protein is left alone by the portion change");
+    scanState = saved;
+  });
+
+  SELFTEST.add("openScanConfirm populates the form from a fresh product, and renders ODbL attribution with an escaped product URL", function () {
+    var saved = scanState;
+    var product = {
+      name: "危険< 商品",
+      unit: "ml",
+      kcalPer100: 250,
+      proteinPer100: 5,
+      defaultQty: 330,
+      productUrl: "https://world.openfoodfacts.org/product/111\"><b>x</b>"
+    };
+    openScanConfirm(product, "111");
+    T.eq(scanState.kcalOverridden, false, "fresh state starts un-overridden (kcal)");
+    T.eq(scanState.proteinOverridden, false, "fresh state starts un-overridden (protein)");
+    T.eq(document.getElementById("sc-name").value, product.name, "product name populated into an editable field");
+    T.eq(document.getElementById("sc-unit").textContent, "ml", "unit label shown");
+    T.eq(document.getElementById("sc-qty").value, "330", "default portion taken from the product");
+    T.eq(document.getElementById("sc-kcal").value, "825", "kcal computed from the default portion: 250 * 330 / 100");
+    T.eq(document.getElementById("scanConfirmPanel").hidden, false, "panel opened");
+    var attribution = document.getElementById("sc-attribution").innerHTML;
+    T.ok(attribution.indexOf("Open Food Facts") >= 0, "names the data source, not just a company name");
+    T.ok(attribution.indexOf("opendatacommons.org/licenses/odbl") >= 0, "links the ODbL licence");
+    T.ok(attribution.indexOf("バーコードは") >= 0 && attribution.indexOf("送信されます") >= 0, "discloses that the scanned barcode is sent off-device");
+    T.ok(attribution.indexOf("<b>") === -1, "product URL is escaped before being interpolated into markup");
+    closeScanConfirm();
+    scanState = saved;
+  });
+
+  SELFTEST.add("closeScanConfirm hides the panel and clears scan state", function () {
+    var saved = scanState;
+    openScanConfirm(scanConfirmTestProduct(), "1");
+    closeScanConfirm();
+    T.eq(scanState, null, "state cleared so a stray recompute is a no-op");
+    T.eq(document.getElementById("scanConfirmPanel").hidden, true, "panel hidden");
+    scanState = saved;
+  });
+
+  SELFTEST.add("submitScanConfirm rejects an empty name and a non-numeric kcal, and never calls addMeal for either", function () {
+    var saved = scanState;
+    var realAddMeal = addMeal;
+    var addMealCalled = false;
+    addMeal = function () { addMealCalled = true; return "should-not-happen"; };
+    try {
+      scanState = { product: scanConfirmTestProduct(), jan: "1", kcalOverridden: false, proteinOverridden: false };
+      var status = document.getElementById("sc-status");
+
+      document.getElementById("sc-name").value = "";
+      document.getElementById("sc-kcal").value = "50";
+      submitScanConfirm();
+      T.ok(status.className.indexOf("err") >= 0, "empty name is rejected");
+      T.ok(scanState !== null, "panel stays open on validation failure");
+
+      document.getElementById("sc-name").value = "テスト商品";
+      document.getElementById("sc-kcal").value = "abc";
+      submitScanConfirm();
+      T.ok(status.className.indexOf("err") >= 0, "non-numeric kcal is rejected");
+      T.eq(addMealCalled, false, "addMeal is never reached while validation fails");
+    } finally {
+      addMeal = realAddMeal;
+      scanState = saved;
+    }
+  });
+
+  SELFTEST.add("scanFailureMessage covers both failure vocabularies (scanner: denied/camera/library, lookup: notfound/ratelimit/network) and falls back for an unknown reason", function () {
+    T.ok(scanFailureMessage("denied").length > 0, "denied has a message");
+    T.ok(scanFailureMessage("camera").length > 0, "camera has a message");
+    T.ok(scanFailureMessage("library").length > 0, "library has a message");
+    T.eq(scanFailureMessage("notfound"), "この商品は登録されていません", "notfound message");
+    T.eq(scanFailureMessage("ratelimit"), "時間をおいて再度お試しください", "ratelimit message is distinct from network");
+    T.ok(scanFailureMessage("network").length > 0, "network has a message");
+    T.ok(scanFailureMessage("network") !== scanFailureMessage("ratelimit"), "network and ratelimit are not the same message");
+
+    var unknown = scanFailureMessage("some-reason-nobody-invented-yet");
+    T.ok(typeof unknown === "string" && unknown.length > 0, "unknown reason still returns a non-empty string, never blank/undefined");
+    T.ok(typeof scanFailureMessage(undefined) === "string" && scanFailureMessage(undefined).length > 0, "undefined reason also falls back to a non-empty string");
   });
 
   var PROFILE = {
@@ -3926,6 +4483,367 @@
     });
   }
 
+  // ---- barcode scanning ----
+  // startBarcodeScan is the permanent interface the real entry point (setupScanEntry,
+  // below) is built on. The Task 2 gate task's throwaway verification UI (the
+  // temporary scan button/video/output element it used to prove decoding worked)
+  // has been removed now that this real entry point replaces it.
+
+  function offUnitOf(quantityStr) {
+    if (typeof quantityStr === "string" && /ml/i.test(quantityStr)) return "ml";
+    return "g";
+  }
+
+  function parseOffProduct(json, jan) {
+    if (!json || json.status !== 1 || !json.product) return null;
+    var p = json.product;
+    var n = p.nutriments || {};
+    var out = {
+      name: (typeof p.product_name_ja === "string" && p.product_name_ja) ||
+            (typeof p.product_name === "string" && p.product_name) || String(jan),
+      unit: offUnitOf(p.quantity),
+      productUrl: "https://world.openfoodfacts.org/product/" + encodeURIComponent(jan)
+    };
+    if (typeof n["energy-kcal_100g"] === "number") out.kcalPer100 = n["energy-kcal_100g"];
+    if (typeof n.proteins_100g === "number") out.proteinPer100 = n.proteins_100g;
+    if (typeof p.serving_quantity === "number") out.defaultQty = p.serving_quantity;
+    else if (typeof p.product_quantity === "number") out.defaultQty = p.product_quantity;
+    return out;
+  }
+
+  function computeFromPer100(per100, qty) {
+    if (typeof per100 !== "number" || isNaN(per100)) return undefined;
+    if (typeof qty !== "number" || isNaN(qty)) return undefined;
+    return Math.round(per100 * qty / 100);
+  }
+
+  // Identification to the OFF API goes through app_name/app_version query
+  // params, not a User-Agent header - browser fetch() refuses to let script
+  // set User-Agent (it's on the forbidden header list), so there is no way to
+  // satisfy that requirement from here.
+  var OFF_FIELDS = "product_name,product_name_ja,quantity,product_quantity,serving_quantity,nutriments";
+  function offProductUrl(jan) {
+    return "https://world.openfoodfacts.org/api/v2/product/" + encodeURIComponent(jan) +
+      ".json?fields=" + OFF_FIELDS + "&app_name=diet-tracker&app_version=" + APP_VERSION;
+  }
+
+  // Maps a lookup to one of a small set of outcomes the UI (Task 5) can act
+  // on directly: {ok:true, product} or {ok:false, reason:"notfound"|"ratelimit"|"network"}.
+  // No automatic retries here on purpose - OFF's limit is 15 req/min, and a
+  // retry storm on failure would burn that budget for no benefit; a human
+  // retry (re-scan / tap again) is the right recovery path.
+  // Malformed JSON (res.json() rejecting) is folded into "network": at that
+  // point we have a response but can't trust its body, which is the same
+  // situation the catch-all below exists for, and inventing a fourth reason
+  // the UI would have to special-case buys nothing over "network".
+  function fetchOffProduct(jan) {
+    return fetch(offProductUrl(jan)).then(function (res) {
+      if (res.status === 429) return { ok: false, reason: "ratelimit" };
+      if (!res.ok) return { ok: false, reason: "network" };
+      return res.json().then(function (json) {
+        var p = parseOffProduct(json, jan);
+        return p ? { ok: true, product: p } : { ok: false, reason: "notfound" };
+      });
+    })["catch"](function () { return { ok: false, reason: "network" }; });
+  }
+
+  // The brief's own snippet checked err.name !== "NotFoundException", but in this
+  // minified UMD bundle err.name is a mangled single letter (e.g. "N" for
+  // NotFoundException) - that comparison never matches, so every unsuccessful
+  // frame from decodeFromVideoDevice (which fires continuously while nothing is
+  // found yet) was misclassified as a fatal error and the scan died instantly.
+  // Use getKind(), which zxing's Exception classes define specifically to survive
+  // minification (verified against vendor/zxing-0.23.0.umd.min.js: getKind()
+  // returns the real "NotFoundException" string; err.name does not). Fall back to
+  // err.constructor.kind if getKind is ever missing (same underlying value in this
+  // bundle). An error with neither accessor is NOT assumed to be "not found" - it
+  // is treated as a real error, since silently swallowing an unrecognized error
+  // would trade "stops instantly" for "spins forever showing nothing", which is
+  // harder to diagnose.
+  function isNotFoundError(err) {
+    if (!err) return false;
+    if (typeof err.getKind === "function") {
+      try { return err.getKind() === "NotFoundException"; } catch (e) { return false; }
+    }
+    if (err.constructor && err.constructor.kind) {
+      return err.constructor.kind === "NotFoundException";
+    }
+    return false;
+  }
+
+  var scanReader = null;
+  function startBarcodeScan(videoEl, onResult, onError) {
+    var stopped = false;
+    function stop() {
+      stopped = true;
+      if (scanReader) { try { scanReader.reset(); } catch (e) {} scanReader = null; }
+    }
+    if (typeof ZXing === "undefined" || !ZXing.BrowserMultiFormatReader) {
+      onError("library");
+      return stop;
+    }
+    scanReader = new ZXing.BrowserMultiFormatReader();
+    scanReader.decodeFromVideoDevice(null, videoEl, function (result, err) {
+      if (stopped) return;
+      if (result) { stop(); onResult(result.getText()); return; }
+      // err comes on every frame while nothing is found yet, so filter those out
+      if (err && !isNotFoundError(err)) { stop(); onError(err.name); }
+    })["catch"](function (e) {
+      stop();
+      onError(e && e.name === "NotAllowedError" ? "denied" : "camera");
+    });
+    return stop;
+  }
+
+  // ---- scan confirm (Task 5) ----
+  // The only path that turns a scanned product's per-100g values into a
+  // logged meal. Open Food Facts reports kcal/protein per 100g, not per
+  // package, so a snack at 547.8 kcal/100g is a 67g bag = 367 kcal; this
+  // screen is what does that conversion, and there must be no shortcut that
+  // logs straight from the per-100g values without going through the
+  // portion field.
+  //
+  // Override state lives on the module-level scanState object created by
+  // openScanConfirm: { product, jan, kcalOverridden, proteinOverridden }.
+  // kcal and protein each get their own boolean flag so overriding one never
+  // affects the other. While a field's flag is set, renderScanConfirm()
+  // leaves that field's <input> alone on every recompute (portion change);
+  // the field's own "自動計算に戻す" button clears the flag and immediately
+  // recomputes it from the current portion.
+  var scanState = null;
+
+  function scanConfirmAttributionHtml(product) {
+    return '<div class="off-attribution">' +
+      'この栄養情報は <a href="' + escapeHtml(product.productUrl) + '" target="_blank" rel="noopener">Open Food Facts</a> ' +
+      'のデータベース由来で、<a href="https://opendatacommons.org/licenses/odbl/" target="_blank" rel="noopener">Open Database License (ODbL)</a> ' +
+      'の下で提供されています。読み取ったバーコードは Open Food Facts に送信されます。' +
+      '</div>';
+  }
+
+  function scanConfirmPer100Text(product) {
+    var kcalText = typeof product.kcalPer100 === "number" ? (Math.round(product.kcalPer100 * 10) / 10) + " kcal" : "不明";
+    var proteinText = typeof product.proteinPer100 === "number" ? "P " + (Math.round(product.proteinPer100 * 10) / 10) + "g" : "P 不明";
+    return "100gあたり: " + kcalText + " / " + proteinText;
+  }
+
+  // openScanConfirm(product, jan) - opens the confirm screen for a looked-up
+  // product (the shape returned by parseOffProduct/fetchOffProduct).
+  function openScanConfirm(product, jan) {
+    scanState = { product: product, jan: jan, kcalOverridden: false, proteinOverridden: false };
+    document.getElementById("sc-name").value = product.name;
+    document.getElementById("sc-per100").textContent = scanConfirmPer100Text(product);
+    document.getElementById("sc-unit").textContent = product.unit;
+    document.getElementById("sc-qty").value = typeof product.defaultQty === "number" ? product.defaultQty : "";
+    document.getElementById("sc-time").value = defaultMealTime(new Date());
+    document.getElementById("sc-date").value = todayStr();
+    document.getElementById("sc-attribution").innerHTML = scanConfirmAttributionHtml(product);
+    var status = document.getElementById("sc-status");
+    status.textContent = "";
+    status.className = "data-status";
+    renderScanConfirm();
+    document.getElementById("scanConfirmPanel").hidden = false;
+  }
+
+  // renderScanConfirm() - recomputes kcal/protein from the current portion
+  // for whichever of the two fields is not overridden, and syncs the
+  // per-field "overridden" indicators. Safe to call any time scanState is
+  // set (portion change, override toggled, reset button, initial open).
+  function renderScanConfirm() {
+    if (!scanState) return;
+    var qty = parseFloat(document.getElementById("sc-qty").value);
+    if (!scanState.kcalOverridden) {
+      var k = computeFromPer100(scanState.product.kcalPer100, qty);
+      document.getElementById("sc-kcal").value = (k === undefined ? "" : k);
+    }
+    if (!scanState.proteinOverridden) {
+      var p = computeFromPer100(scanState.product.proteinPer100, qty);
+      document.getElementById("sc-protein").value = (p === undefined ? "" : p);
+    }
+    document.getElementById("sc-kcal-overridden").hidden = !scanState.kcalOverridden;
+    document.getElementById("sc-protein-overridden").hidden = !scanState.proteinOverridden;
+  }
+
+  function closeScanConfirm() {
+    scanState = null;
+    document.getElementById("scanConfirmPanel").hidden = true;
+  }
+
+  // submitScanConfirm() - validates and logs the confirmed meal. Mirrors the
+  // manual meal form's inline validation/status pattern; never fabricates a
+  // protein value (empty field -> undefined, not 0).
+  function submitScanConfirm() {
+    if (!scanState) return;
+    var status = document.getElementById("sc-status");
+    var name = document.getElementById("sc-name").value.trim();
+    var kcal = parseFloat(document.getElementById("sc-kcal").value);
+    var proteinRaw = document.getElementById("sc-protein").value;
+    var protein = proteinRaw === "" ? undefined : parseFloat(proteinRaw);
+
+    if (!name) { status.textContent = "商品名を入力してください"; status.className = "data-status err"; return; }
+    if (isNaN(kcal) || kcal < 0) { status.textContent = "カロリーを正しく入力してください"; status.className = "data-status err"; return; }
+    if (protein !== undefined && (isNaN(protein) || protein < 0)) { status.textContent = "タンパク質を正しく入力してください"; status.className = "data-status err"; return; }
+
+    var date = document.getElementById("sc-date").value || todayStr();
+    var time = document.getElementById("sc-time").value;
+    addMeal(date, time, name, kcal, protein, "barcode");
+    upsertFood(name, kcal, protein);
+    renderAll();
+    closeScanConfirm();
+  }
+
+  function setupScanConfirm() {
+    document.getElementById("sc-qty").addEventListener("input", function () {
+      renderScanConfirm();
+    });
+    document.getElementById("sc-kcal").addEventListener("input", function () {
+      if (!scanState) return;
+      scanState.kcalOverridden = true;
+      renderScanConfirm();
+    });
+    document.getElementById("sc-protein").addEventListener("input", function () {
+      if (!scanState) return;
+      scanState.proteinOverridden = true;
+      renderScanConfirm();
+    });
+    document.getElementById("sc-kcal-reset").addEventListener("click", function () {
+      if (!scanState) return;
+      scanState.kcalOverridden = false;
+      renderScanConfirm();
+    });
+    document.getElementById("sc-protein-reset").addEventListener("click", function () {
+      if (!scanState) return;
+      scanState.proteinOverridden = false;
+      renderScanConfirm();
+    });
+    document.getElementById("sc-confirm-btn").addEventListener("click", function () {
+      submitScanConfirm();
+    });
+    document.getElementById("sc-cancel-btn").addEventListener("click", function () {
+      closeScanConfirm();
+    });
+  }
+
+  // scanFailureMessage(reason) - the single place that turns a failure reason
+  // into what the user is told. Accepts both vocabularies in play: denied /
+  // camera / library come from the scanner (startBarcodeScan's onError);
+  // notfound / ratelimit / network come from the lookup (fetchOffProduct's
+  // {ok:false, reason}). Always returns a non-empty string, including for a
+  // reason this function does not recognize - a blank message box is worse
+  // than a generic one, and new failure sources should degrade to "something
+  // went wrong, here's what to do" rather than show nothing.
+  function scanFailureMessage(reason) {
+    switch (reason) {
+      case "denied": return "カメラを使えません。番号を入力してください";
+      case "camera": return "カメラを使えません。番号を入力してください";
+      case "library": return "カメラを使えません。番号を入力してください";
+      case "notfound": return "この商品は登録されていません";
+      case "ratelimit": return "時間をおいて再度お試しください";
+      case "network": return "通信できませんでした";
+      default: return "読み取れませんでした。番号を入力してください";
+    }
+  }
+
+  function setScanStatus(msg, kind) {
+    var el = document.getElementById("scan-status");
+    el.textContent = msg || "";
+    el.className = "data-status" + (kind ? " " + kind : "");
+  }
+
+  // handleScanFailure(reason, jan) - routes every failure to a next step,
+  // never a dead end. denied/camera/library (and anything unrecognized, since
+  // those can only originate from the scanner's onError) point back at the
+  // manual JAN field already on screen. notfound/ratelimit/network are lookup
+  // failures on a barcode we DID read, so there is no point retrying the same
+  // request automatically (OFF allows 15 req/min) - hand off to the existing
+  // manual meal-entry form instead, keeping the barcode visible so the user
+  // does not have to read it off the package again.
+  function handleScanFailure(reason, jan) {
+    var msg = scanFailureMessage(reason);
+    setScanStatus(msg, "err");
+    if (reason === "notfound" || reason === "ratelimit" || reason === "network") {
+      var readout = document.getElementById("scan-jan-readout");
+      if (jan) {
+        readout.textContent = "読み取ったバーコード: " + jan;
+        readout.hidden = false;
+      }
+      var nameField = document.getElementById("m-name");
+      if (nameField) nameField.focus();
+      return;
+    }
+    var janInput = document.getElementById("scan-jan-input");
+    if (janInput) janInput.focus();
+  }
+
+  // lookupJan(jan) - the one path both camera scans and manual JAN entry run
+  // through, so there is exactly one place that calls fetchOffProduct.
+  function lookupJan(jan) {
+    setScanStatus("検索中...", "");
+    fetchOffProduct(jan).then(function (r) {
+      if (r.ok) {
+        document.getElementById("scan-jan-readout").hidden = true;
+        setScanStatus("", "");
+        openScanConfirm(r.product, jan);
+        return;
+      }
+      handleScanFailure(r.reason, jan);
+    });
+  }
+
+  var SCAN_HINT_DELAY_MS = 20000;
+
+  function setupScanEntry() {
+    var startBtn = document.getElementById("scan-start-btn");
+    var video = document.getElementById("scan-video");
+    var hint = document.getElementById("scan-hint");
+    var janInput = document.getElementById("scan-jan-input");
+    var janBtn = document.getElementById("scan-jan-btn");
+    var scanStop = null;
+    var hintTimer = null;
+
+    function clearHintTimer() {
+      if (hintTimer) { clearTimeout(hintTimer); hintTimer = null; }
+    }
+
+    // Stops the camera. Used when a read succeeds, a fatal scan error fires,
+    // or the user taps the button again to cancel - never on the 20s hint,
+    // which fires without stopping anything (a read may still succeed).
+    function stopScanning() {
+      if (scanStop) { scanStop(); scanStop = null; }
+      clearHintTimer();
+      hint.hidden = true;
+      video.style.display = "none";
+      startBtn.textContent = "バーコードをスキャン";
+    }
+
+    startBtn.addEventListener("click", function () {
+      if (scanStop) { stopScanning(); return; }
+      setScanStatus("カメラを起動しています...", "");
+      document.getElementById("scan-jan-readout").hidden = true;
+      video.style.display = "block";
+      startBtn.textContent = "スキャンを止める";
+      hint.hidden = true;
+      clearHintTimer();
+      hintTimer = setTimeout(function () {
+        hint.textContent = "読み取れませんか? 番号を入力できます";
+        hint.hidden = false;
+      }, SCAN_HINT_DELAY_MS);
+
+      scanStop = startBarcodeScan(video, function (text) {
+        stopScanning();
+        lookupJan(text);
+      }, function (reason) {
+        stopScanning();
+        handleScanFailure(reason, null);
+      });
+    });
+
+    janBtn.addEventListener("click", function () {
+      var jan = janInput.value.trim();
+      if (!jan) { setScanStatus("バーコード番号を入力してください", "err"); return; }
+      lookupJan(jan);
+    });
+  }
+
   function setupMealForm() {
     var form = document.getElementById("mealForm");
     var dateInput = document.getElementById("m-date");
@@ -4177,6 +5095,8 @@
   setupTabs();
   setupForm();
   setupMealForm();
+  setupScanConfirm();
+  setupScanEntry();
   setupSettings();
   setupChartToggle();
   setupRecipeModal();
