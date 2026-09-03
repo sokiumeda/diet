@@ -983,7 +983,7 @@
     </div>
 
     <h2 class="section-title">データ管理</h2>
-    <div class="panel">
+    <div class="panel" id="dataManagementPanel">
       <div class="data-actions">
         <p class="data-hint">記録と設定をJSONファイルに書き出せます。端末変更やlocalStorage消失に備えて、定期的なエクスポートをおすすめします。</p>
         <button type="button" class="btn secondary full" id="exportBtn">JSONをエクスポート</button>
@@ -1327,8 +1327,38 @@
     localStorage.removeItem(A); localStorage.removeItem(B);
   });
 
+  // Strengthened from a plain existence check: this now confirms (a) the button
+  // actually lives inside the データ管理 panel, not just anywhere in the document,
+  // and (b) a click really reaches downloadBackup.
+  //
+  // Under ?selftest=1 the app's own init short-circuits before setupDataManagement()
+  // ever runs (see the `if (...selftest...) { SELFTEST.run(); return; }` guard near
+  // the bottom of the file), so backupBtn has no click listener yet at this point
+  // in a real run. This test attaches the exact same listener setupDataManagement()
+  // would (`backupBtn.addEventListener("click", downloadBackup)`) rather than
+  // calling setupDataManagement() itself, specifically to avoid also invoking
+  // configureBackupButton(), which reads the real BACKUP_KEY_V1/BACKUP_KEY_CORRUPT
+  // localStorage keys -- forbidden for tests to touch. Part (b) then stubs out
+  // firstStoredValue itself (a plain function var in this closure) instead of
+  // touching localStorage, so this never reads/writes/clears any real storage key.
   SELFTEST.add("backup download button is wired into the データ管理 panel", function () {
-    T.ok(!!document.getElementById("backupBtn"), "button exists so the write-only backup is reachable from the UI");
+    var btn = document.getElementById("backupBtn");
+    T.ok(!!btn, "button exists so the write-only backup is reachable from the UI");
+    var panel = document.getElementById("dataManagementPanel");
+    T.ok(!!panel, "データ管理 panel exists");
+    T.ok(panel.contains(btn), "backupBtn is actually inside the データ管理 panel, not just present somewhere in the page");
+
+    var realFirstStoredValue = firstStoredValue;
+    var calledWithKeys = null;
+    firstStoredValue = function (keys) { calledWithKeys = keys; return null; };
+    btn.addEventListener("click", downloadBackup);
+    try {
+      btn.click();
+    } finally {
+      firstStoredValue = realFirstStoredValue;
+    }
+    T.ok(!!calledWithKeys, "clicking backupBtn invoked downloadBackup, which called firstStoredValue");
+    T.deepEq(calledWithKeys, [BACKUP_KEY_V1, BACKUP_KEY_CORRUPT], "downloadBackup looks up the real backup keys, in priority order");
   });
 
   SELFTEST.add("addOrUpdateLog merges instead of replacing", function () {
@@ -1387,11 +1417,12 @@
     state.logs = saved;
   });
 
-  // Regression for the MINOR finding: logging a meal on a rest day creates a log
-  // entry (trained defaults to false, no weight), which previously read as an
-  // explicit "did not train" day and zeroed the streak. A meal-only day must be
-  // transparent to the streak walk instead.
-  SELFTEST.add("computeGaugeStats streak is not reset by a meal-only day with no weight/trained flag", function () {
+  // Regression for a reopened finding: logging a meal on a rest day creates a log
+  // entry (trained defaults to false, no weight), which must be invisible to the
+  // streak walk -- exactly as if no entry existed for that date. It must NOT
+  // bridge the calendar gap between the two real training days on either side of
+  // it, so the streak here is 1 (broken by the missing 08-15), not 2.
+  SELFTEST.add("computeGaugeStats streak is not bridged by a meal-only day with no weight/trained flag", function () {
     var saved = state.logs;
     state.logs = [
       { date: "2026-08-14", weight: 80, trained: true, meals: [] },
@@ -1399,7 +1430,7 @@
       { date: "2026-08-16", weight: 79.5, trained: true, meals: [] }
     ];
     var s = computeGaugeStats();
-    T.eq(s.streak, 2, "the meal-only day in between neither breaks nor counts toward the streak");
+    T.eq(s.streak, 1, "the meal-only day is treated as if it doesn't exist, so the gap it sits in still breaks the streak");
     state.logs = saved;
   });
 
@@ -2698,30 +2729,29 @@
     }
 
     // A day only carries training information if it was actually logged via the
-    // weight/trained form (addOrUpdateLog), which always stamps a numeric weight.
-    // A meal-only day (created by findOrCreateLog) defaults trained to false with
-    // no weight, and must not read as an explicit "rest day" that breaks the streak.
-    function isTrainingDay(l) {
+    // weight/trained form (addOrUpdateLog), which always stamps a numeric weight,
+    // or has trained explicitly set true. A meal-only day (created by
+    // findOrCreateLog) defaults trained to false with no weight, and must be
+    // treated exactly as if no entry existed for that date at all: it must
+    // neither break the streak (it isn't a rest day) nor bridge a real gap
+    // between two training-bearing days (it isn't a training day either).
+    function isTrainingBearingDay(l) {
       return typeof l.weight === "number" || l.trained === true;
     }
 
     var streak = 0;
     if (hasLogs) {
       var byDate = {};
-      state.logs.forEach(function (l) { byDate[l.date] = l; });
-      var cursor = logsAsc[logsAsc.length - 1].date;
-      var entry = byDate[cursor];
-      while (entry) {
-        if (!isTrainingDay(entry)) {
-          // meal-only day: neither breaks nor extends the streak, just pass through
+      state.logs.forEach(function (l) {
+        if (isTrainingBearingDay(l)) byDate[l.date] = l;
+      });
+      var trainingBearingDates = Object.keys(byDate).sort();
+      if (trainingBearingDates.length > 0) {
+        var cursor = trainingBearingDates[trainingBearingDates.length - 1];
+        while (byDate[cursor] && byDate[cursor].trained) {
+          streak++;
           cursor = prevDateStr(cursor);
-          entry = byDate[cursor];
-          continue;
         }
-        if (!entry.trained) break;
-        streak++;
-        cursor = prevDateStr(cursor);
-        entry = byDate[cursor];
       }
     }
 
