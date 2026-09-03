@@ -989,6 +989,7 @@
         <button type="button" class="btn secondary full" id="exportBtn">JSONをエクスポート</button>
         <button type="button" class="btn secondary full" id="importBtn">JSONからインポート</button>
         <input type="file" id="importFile" accept="application/json,.json" style="display:none">
+        <button type="button" class="btn secondary full" id="backupBtn" hidden>移行前バックアップをダウンロード</button>
         <div class="data-status" id="dataStatus"></div>
       </div>
     </div>
@@ -1200,6 +1201,51 @@
     T.eq(v1.logs[0].calories, 1200, "input untouched");
   });
 
+  // Regression for the CRITICAL finding: a payload that already has real per-meal
+  // data but lost its schemaVersion stamp (exactly what a still-resident v1 shell
+  // writes) must not have migrateToV2 rebuild the day from calories/protein and
+  // silently drop every individually-logged meal.
+  SELFTEST.add("migrate preserves every meal when schemaVersion is missing but meals exist", function () {
+    var payload = { logs: [
+      { date: "2026-09-01", weight: 72, trained: true, meals: [
+        { id: "m_1", time: "breakfast", name: "卵かけご飯", kcal: 350, protein: 15 },
+        { id: "m_2", time: "lunch", name: "サラダチキン", kcal: 200, protein: 30 }
+      ] }
+    ] };
+    var v2 = migrateToV2(payload);
+    T.eq(v2.schemaVersion, 2, "version stamped");
+    T.eq(v2.logs[0].meals.length, 2, "both meals survive");
+    T.eq(v2.logs[0].meals[0].name, "卵かけご飯", "first meal intact");
+    T.eq(v2.logs[0].meals[1].name, "サラダチキン", "second meal intact");
+  });
+
+  SELFTEST.add("migrate keeps real meals AND folds in a coexisting legacy total instead of dropping it", function () {
+    var payload = { logs: [
+      { date: "2026-09-01", weight: 72, trained: true, calories: 500, protein: 40, meals: [
+        { id: "m_1", time: "breakfast", name: "卵かけご飯", kcal: 350, protein: 15 }
+      ] }
+    ] };
+    var v2 = migrateToV2(payload);
+    T.eq(v2.logs[0].meals.length, 2, "original meal plus one migrated meal for the legacy total");
+    T.eq(v2.logs[0].meals[0].name, "卵かけご飯", "original meal untouched");
+    T.eq(v2.logs[0].meals[1].source, "migrated", "second meal is the synthesized legacy total");
+    T.eq(v2.logs[0].meals[1].kcal, 500, "legacy calories not silently dropped");
+    T.eq(dayKcal(v2.logs[0]), 850, "day total (derived from meals) reflects both sources");
+  });
+
+  SELFTEST.add("migrate is idempotent for meals-present-without-schemaVersion and coexisting payloads", function () {
+    var meansOnly = migrateToV2({ logs: [
+      { date: "2026-09-01", weight: 72, meals: [{ id: "m_1", time: "lunch", name: "A", kcal: 100 }] }
+    ] });
+    T.deepEq(migrateToV2(meansOnly), meansOnly, "second pass over meals-only payload is a no-op");
+
+    var coexisting = migrateToV2({ logs: [
+      { date: "2026-09-01", weight: 72, calories: 500, meals: [{ id: "m_1", time: "lunch", name: "A", kcal: 100 }] }
+    ] });
+    T.deepEq(migrateToV2(coexisting), coexisting, "second pass over coexisting payload is a no-op");
+    T.eq(coexisting.logs[0].meals.length, 2, "still exactly two meals, not four");
+  });
+
   SELFTEST.add("migrate initialises foods and preserves profile", function () {
     var v2 = migrateToV2({ logs: [], profile: { startWeight: 80, goalWeight: 65 } });
     T.deepEq(v2.foods, [], "foods initialised");
@@ -1228,6 +1274,61 @@
     T.eq(backupOnce(K, ""), false, "falsy raw returns false");
     T.eq(localStorage.getItem(K), null, "falsy raw stores nothing");
     localStorage.removeItem(K);
+  });
+
+  // Regression: previously a corrupt payload was zeroed out by loadState's catch
+  // block with no backup ever taken, since JSON.parse throwing happened before
+  // backupOnce ran. safeParseState is the extracted piece that must back the raw
+  // string up before it can be lost. Uses a throwaway probe key only.
+  SELFTEST.add("safeParseState backs up a corrupt payload before it can be discarded", function () {
+    var K = "selftest-corrupt-probe";
+    localStorage.removeItem(K);
+    var good = safeParseState('{"a":1}', K);
+    T.eq(good.ok, true, "valid JSON parses fine");
+    T.deepEq(good.data, { a: 1 }, "parsed value returned");
+    T.eq(localStorage.getItem(K), null, "no backup taken for a valid payload");
+
+    var bad = safeParseState("{not valid json", K);
+    T.eq(bad.ok, false, "invalid JSON reported as failure");
+    T.eq(bad.data, null, "no data returned on failure");
+    T.eq(localStorage.getItem(K), "{not valid json", "raw payload preserved before being discarded");
+
+    T.eq(safeParseState("{still not json", K).ok, false, "still reports failure");
+    T.eq(localStorage.getItem(K), "{not valid json", "first backup is never overwritten by a later corruption");
+    localStorage.removeItem(K);
+  });
+
+  // Regression for the IMPORTANT finding that BACKUP_KEY_V1 was write-only and
+  // unreachable: firstStoredValue/configureBackupButton are the pure logic behind
+  // the new backup-download button. Uses only throwaway probe keys, never the
+  // real BACKUP_KEY_V1/BACKUP_KEY_CORRUPT constants.
+  SELFTEST.add("firstStoredValue returns the first present key's value, else null", function () {
+    var A = "selftest-fsv-a", B = "selftest-fsv-b";
+    localStorage.removeItem(A); localStorage.removeItem(B);
+    T.eq(firstStoredValue([A, B]), null, "nothing stored");
+    localStorage.setItem(B, "backup-json");
+    T.eq(firstStoredValue([A, B]), "backup-json", "falls through to second key");
+    localStorage.setItem(A, "primary-json");
+    T.eq(firstStoredValue([A, B]), "primary-json", "prefers first key when both present");
+    localStorage.removeItem(A); localStorage.removeItem(B);
+  });
+
+  SELFTEST.add("configureBackupButton hides/disables with no backup, shows when one exists", function () {
+    var A = "selftest-cbb-a", B = "selftest-cbb-b";
+    localStorage.removeItem(A); localStorage.removeItem(B);
+    var btn = document.createElement("button");
+    T.eq(configureBackupButton(btn, A, B), false, "no backup present");
+    T.eq(btn.hidden, true, "hidden with no backup");
+    T.eq(btn.disabled, true, "disabled with no backup");
+    localStorage.setItem(B, "x");
+    T.eq(configureBackupButton(btn, A, B), true, "backup present");
+    T.eq(btn.hidden, false, "shown when a backup exists");
+    T.eq(btn.disabled, false, "enabled when a backup exists");
+    localStorage.removeItem(A); localStorage.removeItem(B);
+  });
+
+  SELFTEST.add("backup download button is wired into the データ管理 panel", function () {
+    T.ok(!!document.getElementById("backupBtn"), "button exists so the write-only backup is reachable from the UI");
   });
 
   SELFTEST.add("addOrUpdateLog merges instead of replacing", function () {
@@ -1283,6 +1384,45 @@
     T.ok(!isNaN(s.remaining), "remaining is a real number, not NaN");
     renderGauge();
     T.ok(document.getElementById("gaugePanel").innerHTML.indexOf("NaN") === -1, "gauge markup has no NaN");
+    state.logs = saved;
+  });
+
+  // Regression for the MINOR finding: logging a meal on a rest day creates a log
+  // entry (trained defaults to false, no weight), which previously read as an
+  // explicit "did not train" day and zeroed the streak. A meal-only day must be
+  // transparent to the streak walk instead.
+  SELFTEST.add("computeGaugeStats streak is not reset by a meal-only day with no weight/trained flag", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-08-14", weight: 80, trained: true, meals: [] },
+      { date: "2026-08-15", trained: false, meals: [{ id: "m_1", time: "lunch", name: "間食", kcal: 200 }] },
+      { date: "2026-08-16", weight: 79.5, trained: true, meals: [] }
+    ];
+    var s = computeGaugeStats();
+    T.eq(s.streak, 2, "the meal-only day in between neither breaks nor counts toward the streak");
+    state.logs = saved;
+  });
+
+  SELFTEST.add("computeGaugeStats streak is not zeroed when the most recent log is a meal-only day", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-08-15", weight: 80, trained: true, meals: [] },
+      { date: "2026-08-16", trained: false, meals: [{ id: "m_1", time: "snack", name: "間食", kcal: 150 }] }
+    ];
+    var s = computeGaugeStats();
+    T.eq(s.streak, 1, "trailing meal-only day is skipped, not read as a broken streak");
+    state.logs = saved;
+  });
+
+  SELFTEST.add("computeGaugeStats streak still breaks on a genuine rest day (weighed in, not trained)", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-08-14", weight: 80, trained: true, meals: [] },
+      { date: "2026-08-15", weight: 79.8, trained: false, meals: [] },
+      { date: "2026-08-16", weight: 79.5, trained: true, meals: [] }
+    ];
+    var s = computeGaugeStats();
+    T.eq(s.streak, 1, "a real rest day (has weight, trained=false) still breaks the streak");
     state.logs = saved;
   });
 
@@ -1392,6 +1532,21 @@
     state.foods = saved;
   });
 
+  // Regression for the MINOR finding: renderHistory looked up LOG_MEAL_TIME_LABEL[m.time]
+  // with no own-property guard (the import validator already had one, this render
+  // site did not), so an unknown time could resolve to an inherited Object.prototype
+  // property instead of a real label.
+  SELFTEST.add("renderHistory guards against a meal time inherited from Object.prototype", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-09-01", trained: false, meals: [{ id: "m_1", time: "constructor", name: "A", kcal: 100 }] }
+    ];
+    renderHistory();
+    var html = document.getElementById("historyList").innerHTML;
+    T.ok(html.indexOf("function") === -1, "inherited Object.prototype property is not rendered as the label");
+    state.logs = saved;
+  });
+
   SELFTEST.add("import accepts v1 payloads", function () {
     T.eq(validateImportedData({ logs: [{ date: "2026-09-01", weight: 72, calories: 1200 }] }), null, "v1 ok");
   });
@@ -1430,6 +1585,27 @@
     T.ok(validateImportedData({ schemaVersion: 2, logs: [
       { date: "2026-09-01", meals: [{ id: "m_1", time: "constructor", name: "A", kcal: 100 }] }
     ] }), "'constructor' as a meal time is rejected, not treated as a valid bucket");
+  });
+
+  // Regression for the MINOR finding: meal/food ids from imported JSON are
+  // interpolated unescaped into HTML attributes (data-meal, data-food) at render
+  // time, but validateImportedData never checked id at all.
+  SELFTEST.add("import rejects meal and food ids containing unsafe characters", function () {
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ id: 'm_1" onmouseover="alert(1)', time: "lunch", name: "A", kcal: 100 }] }
+    ] }), "quote-containing meal id rejected");
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [], foods: [
+      { id: 'f_1"><script>', name: "A", kcal: 100 }
+    ] }), "quote-containing food id rejected");
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ id: 42, time: "lunch", name: "A", kcal: 100 }] }
+    ] }), "non-string meal id rejected");
+    T.eq(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ id: "m_1", time: "lunch", name: "A", kcal: 100 }] }
+    ], foods: [{ id: "f_1", name: "A", kcal: 100 }] }), null, "safe ids still accepted");
+    T.eq(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ time: "lunch", name: "A", kcal: 100 }] }
+    ] }), null, "an omitted id is still accepted (id is optional, not required)");
   });
 
   SELFTEST.add("metricLogs derives calories and protein from meals", function () {
@@ -2252,6 +2428,12 @@
   var LOG_MEAL_TIME_LABEL = { breakfast: "朝食", lunch: "昼食", dinner: "夕食", snack: "間食", other: "その他" };
   var LOG_MEAL_TIME_ORDER = ["breakfast", "lunch", "dinner", "snack", "other"];
 
+  // Guards against an unknown/imported m.time resolving to an inherited
+  // Object.prototype property (e.g. "constructor") instead of a real label.
+  function mealTimeLabel(t) {
+    return Object.prototype.hasOwnProperty.call(LOG_MEAL_TIME_LABEL, t) ? LOG_MEAL_TIME_LABEL[t] : "";
+  }
+
   function hasMeals(log) {
     return !!(log && Array.isArray(log.meals) && log.meals.length > 0);
   }
@@ -2284,6 +2466,7 @@
   }
 
   var BACKUP_KEY_V1 = "nexra-diet-tracker-backup-v1";
+  var BACKUP_KEY_CORRUPT = "nexra-diet-tracker-backup-corrupt";
   var idCounter = 0;
 
   function newId(prefix) {
@@ -2300,11 +2483,17 @@
     if (parsed.profile) out.profile = parsed.profile;
 
     logs.forEach(function (l) {
-      var entry = { date: l.date, trained: !!l.trained, meals: [] };
+      // l.meals is real per-meal data already; preserve it exactly instead of
+      // rebuilding from the legacy calories/protein totals (which would wipe it).
+      var entry = { date: l.date, trained: !!l.trained, meals: Array.isArray(l.meals) ? l.meals.slice() : [] };
       if (typeof l.weight === "number") entry.weight = l.weight;
       var hasCal = typeof l.calories === "number";
       var hasPro = typeof l.protein === "number";
       if (hasCal || hasPro) {
+        // Legacy calories/protein can appear alongside a real meals array (e.g. a
+        // hand-edited or partially-migrated import). Rather than silently dropping
+        // that old total, fold it in as its own migrated entry so the day's total
+        // (always derived by summing meals) still reflects it.
         var meal = {
           id: newId("m_"), time: "other", name: "まとめて記録（移行）",
           kcal: hasCal ? l.calories : 0, source: "migrated"
@@ -2326,11 +2515,30 @@
     return true;
   }
 
+  // Parses raw JSON, backing the raw string up under corruptKey (via backupOnce,
+  // so it never overwrites an existing backup) before it can be discarded. Kept
+  // separate from loadState so it can be exercised in tests without touching the
+  // app's real storage keys.
+  function safeParseState(raw, corruptKey) {
+    try {
+      return { ok: true, data: JSON.parse(raw) };
+    } catch (e) {
+      backupOnce(corruptKey, raw);
+      return { ok: false, data: null };
+    }
+  }
+
   function loadState() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
-      var parsed = JSON.parse(raw);
+      var parseResult = safeParseState(raw, BACKUP_KEY_CORRUPT);
+      if (!parseResult.ok) {
+        state.logs = [];
+        state.foods = [];
+        return;
+      }
+      var parsed = parseResult.data;
       var needsMigration = parsed && !parsed.schemaVersion;
       if (needsMigration) backupOnce(BACKUP_KEY_V1, raw);   // 退避は一度だけ・既存があれば上書きしない
       var data = migrateToV2(parsed);
@@ -2489,14 +2697,31 @@
       etaWeeks = remaining / weeklyPace;
     }
 
+    // A day only carries training information if it was actually logged via the
+    // weight/trained form (addOrUpdateLog), which always stamps a numeric weight.
+    // A meal-only day (created by findOrCreateLog) defaults trained to false with
+    // no weight, and must not read as an explicit "rest day" that breaks the streak.
+    function isTrainingDay(l) {
+      return typeof l.weight === "number" || l.trained === true;
+    }
+
     var streak = 0;
     if (hasLogs) {
       var byDate = {};
       state.logs.forEach(function (l) { byDate[l.date] = l; });
       var cursor = logsAsc[logsAsc.length - 1].date;
-      while (byDate[cursor] && byDate[cursor].trained) {
+      var entry = byDate[cursor];
+      while (entry) {
+        if (!isTrainingDay(entry)) {
+          // meal-only day: neither breaks nor extends the streak, just pass through
+          cursor = prevDateStr(cursor);
+          entry = byDate[cursor];
+          continue;
+        }
+        if (!entry.trained) break;
         streak++;
         cursor = prevDateStr(cursor);
+        entry = byDate[cursor];
       }
     }
 
@@ -2681,7 +2906,7 @@
         '<div class="history-meals" data-meals-for="' + l.date + '" hidden>' +
           (hasMeals(l)
             ? l.meals.map(function (m) {
-                return '<div class="history-meal-row"><span>' + LOG_MEAL_TIME_LABEL[m.time] + '</span>' +
+                return '<div class="history-meal-row"><span>' + mealTimeLabel(m.time) + '</span>' +
                   '<span class="hm-name">' + escapeHtml(m.name) + '</span>' +
                   '<span class="num">' + m.kcal + 'kcal' + (typeof m.protein === "number" ? " / P" + m.protein + "g" : "") + '</span></div>';
               }).join("")
@@ -3735,6 +3960,10 @@
     return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
   }
 
+  // ids are interpolated unescaped into HTML attributes (data-meal, data-food),
+  // so imported ids must be restricted to a conservative, attribute-safe charset.
+  var SAFE_ID_RE = /^[A-Za-z0-9_-]+$/;
+
   function validateImportedData(data) {
     if (!data || typeof data !== "object") return "JSONの形式が正しくありません";
     if (!Array.isArray(data.logs)) return "logsが見つかりません";
@@ -3754,6 +3983,7 @@
           if (typeof m.name !== "string") return "食事データに不正な名前があります (" + i + "件目)";
           if (typeof m.kcal !== "number" || isNaN(m.kcal)) return "食事データに不正なカロリーがあります (" + i + "件目)";
           if (m.protein !== undefined && (typeof m.protein !== "number" || isNaN(m.protein))) return "食事データに不正なタンパク質量があります (" + i + "件目)";
+          if (m.id !== undefined && (typeof m.id !== "string" || !SAFE_ID_RE.test(m.id))) return "食事データのIDが不正です (" + i + "件目)";
         }
       }
     }
@@ -3764,6 +3994,7 @@
         if (!f || typeof f !== "object" || typeof f.name !== "string") return "よく食べるものの形式が正しくありません (" + k + "件目)";
         if (typeof f.kcal !== "number" || isNaN(f.kcal)) return "よく食べるもののカロリーが不正です (" + k + "件目)";
         if (f.protein !== undefined && (typeof f.protein !== "number" || isNaN(f.protein))) return "よく食べるもののタンパク質量が不正です (" + k + "件目)";
+        if (f.id !== undefined && (typeof f.id !== "string" || !SAFE_ID_RE.test(f.id))) return "よく食べるもののIDが不正です (" + k + "件目)";
       }
     }
     if (data.profile !== undefined && data.profile !== null) {
@@ -3784,23 +4015,61 @@
     el.className = "data-status " + (isError ? "err" : "ok");
   }
 
+  // Shared download mechanism: triggers a browser download of `text` as `filename`.
+  function downloadTextFile(text, filename) {
+    var blob = new Blob([text], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   function exportData() {
     var data = { schemaVersion: 2, logs: state.logs, foods: state.foods };
     if (state.profile) data.profile = state.profile;
     data.exportedAt = new Date().toISOString();
     data.appVersion = APP_VERSION;
     var json = JSON.stringify(data, null, 2);
-    var blob = new Blob([json], { type: "application/json" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    var stamp = todayStr();
-    a.href = url;
-    a.download = "diet-tracker-" + stamp + ".json";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadTextFile(json, "diet-tracker-" + todayStr() + ".json");
     showDataStatus("エクスポートしました (" + state.logs.length + "件)", false);
+  }
+
+  // Returns the value of the first storageKey (in order) that has something
+  // stored under it, else null. Kept generic/pure so it can be unit-tested
+  // without touching the app's real backup keys.
+  function firstStoredValue(storageKeys) {
+    for (var i = 0; i < storageKeys.length; i++) {
+      var v = localStorage.getItem(storageKeys[i]);
+      if (v) return v;
+    }
+    return null;
+  }
+
+  // Shows/hides & enables/disables a backup-download button based on whether a
+  // backup currently exists under v1Key or corruptKey. Returns whether one exists.
+  // Takes the keys as parameters (rather than reading the module-level constants
+  // directly) so it can be exercised in tests with throwaway probe keys.
+  function configureBackupButton(btn, v1Key, corruptKey) {
+    var hasBackup = !!firstStoredValue([v1Key, corruptKey]);
+    btn.hidden = !hasBackup;
+    btn.disabled = !hasBackup;
+    return hasBackup;
+  }
+
+  // The backup taken by backupOnce (pre-migration v1, or a corrupt payload) is
+  // otherwise write-only: nothing in the app ever reads it back, and on iOS the
+  // owner has no devtools to pull it out of localStorage manually. This gives
+  // them a way to get it off the device via the same download mechanism used
+  // for a normal export (no in-app restore flow, just recovery of the raw JSON).
+  function downloadBackup() {
+    var raw = firstStoredValue([BACKUP_KEY_V1, BACKUP_KEY_CORRUPT]);
+    if (!raw) return;
+    downloadTextFile(raw, "diet-tracker-backup-" + todayStr() + ".json");
+    showDataStatus("バックアップをダウンロードしました", false);
   }
 
   function importDataFromFile(file) {
@@ -3846,6 +4115,9 @@
       fileInput.value = "";
       fileInput.click();
     });
+    var backupBtn = document.getElementById("backupBtn");
+    configureBackupButton(backupBtn, BACKUP_KEY_V1, BACKUP_KEY_CORRUPT);
+    backupBtn.addEventListener("click", downloadBackup);
     fileInput.addEventListener("change", function () {
       var file = fileInput.files && fileInput.files[0];
       importDataFromFile(file);
