@@ -1089,6 +1089,7 @@
     <div class="panel" id="dataManagementPanel">
       <div class="data-actions">
         <p class="data-hint">記録と設定をJSONファイルに書き出せます。端末変更やlocalStorage消失に備えて、定期的なエクスポートをおすすめします。</p>
+        <p class="data-hint" id="scanPrivacyNotice">バーコードスキャン機能は、読み取ったバーコードを Open Food Facts に送信します。体重・食事の記録が送信されることはありません。</p>
         <button type="button" class="btn secondary full" id="exportBtn">JSONをエクスポート</button>
         <button type="button" class="btn secondary full" id="importBtn">JSONからインポート</button>
         <input type="file" id="importFile" accept="application/json,.json" style="display:none">
@@ -1517,6 +1518,23 @@
     }
     T.ok(!!calledWithKeys, "clicking backupBtn invoked downloadBackup, which called firstStoredValue");
     T.deepEq(calledWithKeys, [BACKUP_KEY_V1, BACKUP_KEY_CORRUPT], "downloadBackup looks up the real backup keys, in priority order");
+  });
+
+  // Prior-notice requirement from the spec's 法的義務・制約 section: the fact
+  // that scanning sends data off-device must be visible in the データ管理
+  // panel, not only on the confirm screen (which a user only sees after the
+  // barcode has already been sent). This asserts on a stable substring
+  // ("Open Food Facts" in the panel's text) rather than the exact sentence,
+  // so a future wording tweak doesn't break the test - but it does fail if
+  // the notice is deleted entirely.
+  SELFTEST.add("データ管理 panel discloses that barcode scanning sends data to Open Food Facts", function () {
+    var panel = document.getElementById("dataManagementPanel");
+    T.ok(!!panel, "データ管理 panel exists");
+    var notice = document.getElementById("scanPrivacyNotice");
+    T.ok(!!notice, "scan privacy notice element exists");
+    T.ok(panel.contains(notice), "notice actually lives inside the データ管理 panel");
+    T.ok(!notice.hidden, "notice is not hidden behind a toggle");
+    T.ok(notice.textContent.indexOf("Open Food Facts") >= 0, "notice mentions Open Food Facts");
   });
 
   SELFTEST.add("addOrUpdateLog merges instead of replacing", function () {
@@ -4503,7 +4521,7 @@
   // params, not a User-Agent header - browser fetch() refuses to let script
   // set User-Agent (it's on the forbidden header list), so there is no way to
   // satisfy that requirement from here.
-  var OFF_FIELDS = "product_name,product_name_ja,quantity,product_quantity,serving_size,serving_quantity,nutriments";
+  var OFF_FIELDS = "product_name,product_name_ja,quantity,product_quantity,serving_quantity,nutriments";
   function offProductUrl(jan) {
     return "https://world.openfoodfacts.org/api/v2/product/" + encodeURIComponent(jan) +
       ".json?fields=" + OFF_FIELDS + "&app_name=diet-tracker&app_version=" + APP_VERSION;
