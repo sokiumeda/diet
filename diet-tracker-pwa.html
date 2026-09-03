@@ -267,6 +267,21 @@
     -webkit-appearance:none;
     appearance:none;
   }
+  .field input[type="text"],
+  .field select{
+    background:#0E141A;
+    border:1px solid var(--border2);
+    color:var(--text);
+    border-radius:8px;
+    padding:9px 10px;
+    font-family:var(--sans);
+    font-size:15px;
+    width:100%;
+    max-width:100%;
+    height:44px;
+    -webkit-appearance:none;
+    appearance:none;
+  }
   /* iOS Safari centers the date value by default, unlike other inputs */
   .field input[type="date"]::-webkit-date-and-time-value{ text-align:left; }
   .field input:focus{ outline:1px solid var(--cyan); }
@@ -378,6 +393,7 @@
     border:1px solid var(--border);
     border-radius:8px;
     padding:9px 12px;
+    cursor:pointer;
   }
   .history-row .date{
     font-family:var(--mono);
@@ -429,6 +445,11 @@
   }
   .del-btn:active{ color:var(--red); border-color:var(--red); }
 
+  .history-meals{padding:6px 0 10px 8px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .history-meal-row{display:flex;gap:8px;font-size:12px;color:#b9bec7;padding:2px 0}
+  .history-meal-row .hm-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .history-meal-row.empty{color:#6b7078}
+
   .empty-state{
     color:var(--muted);
     font-size:13px;
@@ -437,6 +458,11 @@
     border:1px dashed var(--border2);
     border-radius:10px;
   }
+
+  /* ---- frequent-food chips ---- */
+  .food-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .food-chip{background:#20242b;border:1px solid #333a44;color:#e6e9ee;border-radius:14px;padding:6px 10px;font-size:13px;cursor:pointer;display:flex;gap:6px;align-items:baseline}
+  .food-chip-macro{font-size:11px;color:#8a8f98}
 
   /* ---- recipe search ---- */
   .recipe-search{
@@ -650,6 +676,14 @@
   }
   .target-bar-fill.over{ background:var(--red); }
 
+  .meal-bucket{margin-top:12px}
+  .meal-bucket-label{font-size:12px;color:#8a8f98;margin-bottom:4px}
+  .meal-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+  .meal-row.empty{color:#6b7078;font-size:13px}
+  #todayTargetCard .meal-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meal-macro{font-size:13px;color:#b9bec7}
+  .meal-del{background:none;border:none;color:#8a8f98;font-size:18px;padding:0 4px;cursor:pointer}
+
   /* ---- meals ---- */
   .meal-card{
     background:var(--panel);
@@ -850,6 +884,12 @@
     font-family:var(--mono);
     padding-top:10px;
   }
+
+  /* ---- recipe logging + toast ---- */
+  .recipe-log-btn{margin-top:6px;background:#2b6cb0;border:none;color:#fff;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:72px;background:#2a2f37;color:#e6e9ee;border:1px solid #3a414c;border-radius:10px;padding:10px 14px;display:none;gap:12px;align-items:center;z-index:60;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+  .toast.show{display:flex}
+  .toast-undo{background:none;border:none;color:#7fb1ff;font-size:13px;cursor:pointer;padding:0}
 </style>
 </head>
 <body>
@@ -861,7 +901,7 @@
   <div class="panel" id="todayTargetCard"></div>
 
   <div class="tab-panel active" id="tab-dashboard">
-    <h2 class="section-title">記録を追加</h2>
+    <h2 class="section-title">体重を記録</h2>
     <div class="panel">
       <form id="logForm">
         <div class="form-row">
@@ -873,14 +913,6 @@
             <label for="f-weight">体重 (kg)</label>
             <input type="number" id="f-weight" step="0.1" min="0" placeholder="0.0" required>
           </div>
-          <div class="field">
-            <label for="f-calories">摂取カロリー (任意)</label>
-            <input type="number" id="f-calories" step="1" min="0" placeholder="kcal">
-          </div>
-          <div class="field">
-            <label for="f-protein">タンパク質 (任意)</label>
-            <input type="number" id="f-protein" step="1" min="0" placeholder="g">
-          </div>
           <div class="form-bottom-row">
             <div class="toggle-field">
               <label for="f-trained">ジム</label>
@@ -891,6 +923,42 @@
             </div>
             <button type="submit" class="btn">追加</button>
           </div>
+        </div>
+      </form>
+    </div>
+
+    <h2 class="section-title">食事を追加</h2>
+    <div class="panel">
+      <div class="food-chips" id="foodChips"></div>
+      <form id="mealForm">
+        <div class="form-row">
+          <div class="field">
+            <label for="m-time">食事帯</label>
+            <select id="m-time">
+              <option value="breakfast">朝食</option>
+              <option value="lunch">昼食</option>
+              <option value="dinner">夕食</option>
+              <option value="snack">間食</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="m-date">日付</label>
+            <input type="date" id="m-date">
+          </div>
+          <div class="field">
+            <label for="m-name">名前</label>
+            <input type="text" id="m-name" placeholder="例: コンビニのサラダチキン">
+          </div>
+          <div class="field">
+            <label for="m-kcal">カロリー (kcal)</label>
+            <input type="number" id="m-kcal" step="1" min="0" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="m-protein">タンパク質 (任意)</label>
+            <input type="number" id="m-protein" step="1" min="0" inputmode="numeric" placeholder="g">
+          </div>
+          <button type="submit" class="btn full">食事を追加</button>
+          <div class="data-status" id="mealStatus"></div>
         </div>
       </form>
     </div>
@@ -915,12 +983,13 @@
     </div>
 
     <h2 class="section-title">データ管理</h2>
-    <div class="panel">
+    <div class="panel" id="dataManagementPanel">
       <div class="data-actions">
         <p class="data-hint">記録と設定をJSONファイルに書き出せます。端末変更やlocalStorage消失に備えて、定期的なエクスポートをおすすめします。</p>
         <button type="button" class="btn secondary full" id="exportBtn">JSONをエクスポート</button>
         <button type="button" class="btn secondary full" id="importBtn">JSONからインポート</button>
         <input type="file" id="importFile" accept="application/json,.json" style="display:none">
+        <button type="button" class="btn secondary full" id="backupBtn" hidden>移行前バックアップをダウンロード</button>
         <div class="data-status" id="dataStatus"></div>
       </div>
     </div>
@@ -978,6 +1047,7 @@
     <div class="recipe-time" id="recipeTime"></div>
     <div class="recipe-title" id="recipeTitle"></div>
     <div class="recipe-macros" id="recipeMacros"></div>
+    <button class="recipe-log-btn" id="recipeLogBtn" type="button">記録に追加</button>
     <h4>材料</h4>
     <ul class="recipe-ingredients" id="recipeIngredients"></ul>
     <h4>作り方</h4>
@@ -1008,7 +1078,580 @@
   "use strict";
 
   var STORAGE_KEY = "nexra-diet-tracker";
-  var APP_VERSION = "2.0";
+  var APP_VERSION = "3.0";
+
+  // ---- self-test harness (activated by ?selftest=1) ----
+  var T = {
+    eq: function (a, b, msg) {
+      if (a !== b) throw new Error((msg || "eq") + ": expected " + JSON.stringify(b) + " but got " + JSON.stringify(a));
+    },
+    deepEq: function (a, b, msg) {
+      var sa = JSON.stringify(a), sb = JSON.stringify(b);
+      if (sa !== sb) throw new Error((msg || "deepEq") + ": expected " + sb + " but got " + sa);
+    },
+    ok: function (cond, msg) {
+      if (!cond) throw new Error((msg || "ok") + ": expected truthy");
+    },
+    throws: function (fn, msg) {
+      var threw = false;
+      try { fn(); } catch (e) { threw = true; }
+      if (!threw) throw new Error((msg || "throws") + ": expected function to throw");
+    }
+  };
+
+  var SELFTEST = {
+    cases: [],
+    add: function (name, fn) { SELFTEST.cases.push({ name: name, fn: fn }); },
+    run: function () {
+      var passed = 0, failed = 0, rows = "";
+      SELFTEST.cases.forEach(function (c) {
+        var ok = true, err = "";
+        try { c.fn(); } catch (e) { ok = false; err = e.message; }
+        if (ok) { passed++; } else { failed++; }
+        rows += '<div style="padding:6px 10px;border-bottom:1px solid #333;color:' +
+          (ok ? "#7ddb7d" : "#ff6b6b") + '">' + (ok ? "PASS" : "FAIL") + " — " + c.name +
+          (ok ? "" : '<div style="color:#ffb4b4;font-size:12px;margin-top:4px">' + err + "</div>") + "</div>";
+      });
+      document.body.innerHTML =
+        '<div style="font-family:monospace;background:#111;color:#eee;min-height:100vh;padding:16px">' +
+        '<h1 style="font-size:18px">selftest: ' + passed + " passed, " + failed + " failed</h1>" +
+        rows + "</div>";
+      document.title = (failed === 0 ? "PASS" : "FAIL") + " selftest (" + passed + "/" + (passed + failed) + ")";
+      return failed === 0;
+    }
+  };
+
+  // Dummy test to verify harness works
+  SELFTEST.add("harness works", function () {
+    T.eq(1 + 1, 2, "arithmetic");
+    T.throws(function () { T.eq(1, 2); }, "failing assertion throws");
+  });
+
+  SELFTEST.add("dayKcal sums meal calories", function () {
+    T.eq(dayKcal({ meals: [{ kcal: 420 }, { kcal: 340 }] }), 760, "sum");
+    T.eq(dayKcal({ meals: [] }), 0, "empty");
+    T.eq(dayKcal({}), 0, "no meals key");
+  });
+
+  SELFTEST.add("dayProtein treats missing protein as zero", function () {
+    T.eq(dayProtein({ meals: [{ kcal: 420, protein: 45 }, { kcal: 200 }] }), 45, "missing protein counts as 0");
+  });
+
+  SELFTEST.add("hasMeals distinguishes unrecorded from zero", function () {
+    T.eq(hasMeals({ meals: [] }), false, "empty means unrecorded");
+    T.eq(hasMeals({}), false, "absent means unrecorded");
+    T.eq(hasMeals({ meals: [{ kcal: 0 }] }), true, "a zero-kcal meal is still a record");
+  });
+
+  SELFTEST.add("defaultMealTime picks bucket from clock", function () {
+    T.eq(defaultMealTime(new Date("2026-09-03T08:00:00")), "breakfast", "morning");
+    T.eq(defaultMealTime(new Date("2026-09-03T12:30:00")), "lunch", "midday");
+    T.eq(defaultMealTime(new Date("2026-09-03T19:00:00")), "dinner", "evening");
+    T.eq(defaultMealTime(new Date("2026-09-03T23:00:00")), "snack", "late night");
+  });
+
+  SELFTEST.add("migrate converts v1 daily totals into one 'other' meal", function () {
+    var v1 = { logs: [{ date: "2026-09-01", weight: 72.4, trained: true, calories: 1200, protein: 90 }] };
+    var v2 = migrateToV2(v1);
+    T.eq(v2.schemaVersion, 2, "version stamped");
+    T.eq(v2.logs[0].meals.length, 1, "one meal");
+    T.eq(v2.logs[0].meals[0].time, "other", "bucket");
+    T.eq(v2.logs[0].meals[0].kcal, 1200, "kcal preserved");
+    T.eq(v2.logs[0].meals[0].protein, 90, "protein preserved");
+    T.eq(v2.logs[0].meals[0].source, "migrated", "source");
+    T.eq(v2.logs[0].weight, 72.4, "weight untouched");
+    T.eq(v2.logs[0].trained, true, "trained untouched");
+    T.eq(v2.logs[0].calories, undefined, "old field removed");
+    T.eq(v2.logs[0].protein, undefined, "old field removed");
+  });
+
+  SELFTEST.add("migrate handles calories-only, protein-only and empty days", function () {
+    var v2 = migrateToV2({ logs: [
+      { date: "2026-09-01", weight: 72, calories: 1200 },
+      { date: "2026-09-02", weight: 72, protein: 80 },
+      { date: "2026-09-03", weight: 72 }
+    ] });
+    T.eq(v2.logs[0].meals[0].protein, undefined, "no fabricated protein");
+    T.eq(v2.logs[1].meals[0].kcal, 0, "protein-only day gets zero kcal");
+    T.eq(v2.logs[1].meals[0].protein, 80, "protein kept");
+    T.deepEq(v2.logs[2].meals, [], "day with neither gets empty meals");
+  });
+
+  SELFTEST.add("migrate preserves totals exactly", function () {
+    var v1 = { logs: [
+      { date: "2026-09-01", weight: 72, calories: 1200, protein: 90 },
+      { date: "2026-09-02", weight: 72, calories: 1450, protein: 105 }
+    ] };
+    var before = v1.logs.reduce(function (s, l) { return s + (l.calories || 0); }, 0);
+    var v2 = migrateToV2(v1);
+    var after = v2.logs.reduce(function (s, l) { return s + dayKcal(l); }, 0);
+    T.eq(after, before, "total kcal unchanged");
+  });
+
+  SELFTEST.add("migrate is idempotent and leaves v2 data alone", function () {
+    var once = migrateToV2({ logs: [{ date: "2026-09-01", weight: 72, calories: 1200 }] });
+    var twice = migrateToV2(once);
+    T.deepEq(twice, once, "second pass changes nothing");
+    T.eq(twice.logs[0].meals.length, 1, "no duplicated meal");
+  });
+
+  SELFTEST.add("migrate does not mutate its input", function () {
+    var v1 = { logs: [{ date: "2026-09-01", weight: 72, calories: 1200 }] };
+    migrateToV2(v1);
+    T.eq(v1.logs[0].calories, 1200, "input untouched");
+  });
+
+  // Regression for the CRITICAL finding: a payload that already has real per-meal
+  // data but lost its schemaVersion stamp (exactly what a still-resident v1 shell
+  // writes) must not have migrateToV2 rebuild the day from calories/protein and
+  // silently drop every individually-logged meal.
+  SELFTEST.add("migrate preserves every meal when schemaVersion is missing but meals exist", function () {
+    var payload = { logs: [
+      { date: "2026-09-01", weight: 72, trained: true, meals: [
+        { id: "m_1", time: "breakfast", name: "卵かけご飯", kcal: 350, protein: 15 },
+        { id: "m_2", time: "lunch", name: "サラダチキン", kcal: 200, protein: 30 }
+      ] }
+    ] };
+    var v2 = migrateToV2(payload);
+    T.eq(v2.schemaVersion, 2, "version stamped");
+    T.eq(v2.logs[0].meals.length, 2, "both meals survive");
+    T.eq(v2.logs[0].meals[0].name, "卵かけご飯", "first meal intact");
+    T.eq(v2.logs[0].meals[1].name, "サラダチキン", "second meal intact");
+  });
+
+  SELFTEST.add("migrate keeps real meals AND folds in a coexisting legacy total instead of dropping it", function () {
+    var payload = { logs: [
+      { date: "2026-09-01", weight: 72, trained: true, calories: 500, protein: 40, meals: [
+        { id: "m_1", time: "breakfast", name: "卵かけご飯", kcal: 350, protein: 15 }
+      ] }
+    ] };
+    var v2 = migrateToV2(payload);
+    T.eq(v2.logs[0].meals.length, 2, "original meal plus one migrated meal for the legacy total");
+    T.eq(v2.logs[0].meals[0].name, "卵かけご飯", "original meal untouched");
+    T.eq(v2.logs[0].meals[1].source, "migrated", "second meal is the synthesized legacy total");
+    T.eq(v2.logs[0].meals[1].kcal, 500, "legacy calories not silently dropped");
+    T.eq(dayKcal(v2.logs[0]), 850, "day total (derived from meals) reflects both sources");
+  });
+
+  SELFTEST.add("migrate is idempotent for meals-present-without-schemaVersion and coexisting payloads", function () {
+    var meansOnly = migrateToV2({ logs: [
+      { date: "2026-09-01", weight: 72, meals: [{ id: "m_1", time: "lunch", name: "A", kcal: 100 }] }
+    ] });
+    T.deepEq(migrateToV2(meansOnly), meansOnly, "second pass over meals-only payload is a no-op");
+
+    var coexisting = migrateToV2({ logs: [
+      { date: "2026-09-01", weight: 72, calories: 500, meals: [{ id: "m_1", time: "lunch", name: "A", kcal: 100 }] }
+    ] });
+    T.deepEq(migrateToV2(coexisting), coexisting, "second pass over coexisting payload is a no-op");
+    T.eq(coexisting.logs[0].meals.length, 2, "still exactly two meals, not four");
+  });
+
+  SELFTEST.add("migrate initialises foods and preserves profile", function () {
+    var v2 = migrateToV2({ logs: [], profile: { startWeight: 80, goalWeight: 65 } });
+    T.deepEq(v2.foods, [], "foods initialised");
+    T.eq(v2.profile.goalWeight, 65, "profile preserved");
+  });
+
+  SELFTEST.add("migrate tolerates empty and malformed input", function () {
+    T.deepEq(migrateToV2({}).logs, [], "no logs key");
+    T.deepEq(migrateToV2({ logs: [] }).logs, [], "empty logs");
+  });
+
+  SELFTEST.add("newId produces unique ids with prefix", function () {
+    var a = newId("m_"), b = newId("m_");
+    T.ok(a.indexOf("m_") === 0, "prefix");
+    T.ok(a !== b, "unique within same millisecond");
+  });
+
+  SELFTEST.add("backupOnce writes once and never overwrites", function () {
+    var K = "selftest-backup-probe";
+    localStorage.removeItem(K);
+    T.eq(backupOnce(K, "first"), true, "first call backs up and returns true");
+    T.eq(localStorage.getItem(K), "first", "value stored");
+    T.eq(backupOnce(K, "second"), false, "second call returns false");
+    T.eq(localStorage.getItem(K), "first", "original value untouched");
+    localStorage.removeItem(K);
+    T.eq(backupOnce(K, ""), false, "falsy raw returns false");
+    T.eq(localStorage.getItem(K), null, "falsy raw stores nothing");
+    localStorage.removeItem(K);
+  });
+
+  // Regression: previously a corrupt payload was zeroed out by loadState's catch
+  // block with no backup ever taken, since JSON.parse throwing happened before
+  // backupOnce ran. safeParseState is the extracted piece that must back the raw
+  // string up before it can be lost. Uses a throwaway probe key only.
+  SELFTEST.add("safeParseState backs up a corrupt payload before it can be discarded", function () {
+    var K = "selftest-corrupt-probe";
+    localStorage.removeItem(K);
+    var good = safeParseState('{"a":1}', K);
+    T.eq(good.ok, true, "valid JSON parses fine");
+    T.deepEq(good.data, { a: 1 }, "parsed value returned");
+    T.eq(localStorage.getItem(K), null, "no backup taken for a valid payload");
+
+    var bad = safeParseState("{not valid json", K);
+    T.eq(bad.ok, false, "invalid JSON reported as failure");
+    T.eq(bad.data, null, "no data returned on failure");
+    T.eq(localStorage.getItem(K), "{not valid json", "raw payload preserved before being discarded");
+
+    T.eq(safeParseState("{still not json", K).ok, false, "still reports failure");
+    T.eq(localStorage.getItem(K), "{not valid json", "first backup is never overwritten by a later corruption");
+    localStorage.removeItem(K);
+  });
+
+  // Regression for the IMPORTANT finding that BACKUP_KEY_V1 was write-only and
+  // unreachable: firstStoredValue/configureBackupButton are the pure logic behind
+  // the new backup-download button. Uses only throwaway probe keys, never the
+  // real BACKUP_KEY_V1/BACKUP_KEY_CORRUPT constants.
+  SELFTEST.add("firstStoredValue returns the first present key's value, else null", function () {
+    var A = "selftest-fsv-a", B = "selftest-fsv-b";
+    localStorage.removeItem(A); localStorage.removeItem(B);
+    T.eq(firstStoredValue([A, B]), null, "nothing stored");
+    localStorage.setItem(B, "backup-json");
+    T.eq(firstStoredValue([A, B]), "backup-json", "falls through to second key");
+    localStorage.setItem(A, "primary-json");
+    T.eq(firstStoredValue([A, B]), "primary-json", "prefers first key when both present");
+    localStorage.removeItem(A); localStorage.removeItem(B);
+  });
+
+  SELFTEST.add("configureBackupButton hides/disables with no backup, shows when one exists", function () {
+    var A = "selftest-cbb-a", B = "selftest-cbb-b";
+    localStorage.removeItem(A); localStorage.removeItem(B);
+    var btn = document.createElement("button");
+    T.eq(configureBackupButton(btn, A, B), false, "no backup present");
+    T.eq(btn.hidden, true, "hidden with no backup");
+    T.eq(btn.disabled, true, "disabled with no backup");
+    localStorage.setItem(B, "x");
+    T.eq(configureBackupButton(btn, A, B), true, "backup present");
+    T.eq(btn.hidden, false, "shown when a backup exists");
+    T.eq(btn.disabled, false, "enabled when a backup exists");
+    localStorage.removeItem(A); localStorage.removeItem(B);
+  });
+
+  // Strengthened from a plain existence check: this now confirms (a) the button
+  // actually lives inside the データ管理 panel, not just anywhere in the document,
+  // and (b) a click really reaches downloadBackup.
+  //
+  // Under ?selftest=1 the app's own init short-circuits before setupDataManagement()
+  // ever runs (see the `if (...selftest...) { SELFTEST.run(); return; }` guard near
+  // the bottom of the file), so backupBtn has no click listener yet at this point
+  // in a real run. This test attaches the exact same listener setupDataManagement()
+  // would (`backupBtn.addEventListener("click", downloadBackup)`) rather than
+  // calling setupDataManagement() itself, specifically to avoid also invoking
+  // configureBackupButton(), which reads the real BACKUP_KEY_V1/BACKUP_KEY_CORRUPT
+  // localStorage keys -- forbidden for tests to touch. Part (b) then stubs out
+  // firstStoredValue itself (a plain function var in this closure) instead of
+  // touching localStorage, so this never reads/writes/clears any real storage key.
+  SELFTEST.add("backup download button is wired into the データ管理 panel", function () {
+    var btn = document.getElementById("backupBtn");
+    T.ok(!!btn, "button exists so the write-only backup is reachable from the UI");
+    var panel = document.getElementById("dataManagementPanel");
+    T.ok(!!panel, "データ管理 panel exists");
+    T.ok(panel.contains(btn), "backupBtn is actually inside the データ管理 panel, not just present somewhere in the page");
+
+    var realFirstStoredValue = firstStoredValue;
+    var calledWithKeys = null;
+    firstStoredValue = function (keys) { calledWithKeys = keys; return null; };
+    btn.addEventListener("click", downloadBackup);
+    try {
+      btn.click();
+    } finally {
+      firstStoredValue = realFirstStoredValue;
+    }
+    T.ok(!!calledWithKeys, "clicking backupBtn invoked downloadBackup, which called firstStoredValue");
+    T.deepEq(calledWithKeys, [BACKUP_KEY_V1, BACKUP_KEY_CORRUPT], "downloadBackup looks up the real backup keys, in priority order");
+  });
+
+  SELFTEST.add("addOrUpdateLog merges instead of replacing", function () {
+    var saved = state.logs;
+    state.logs = [{ date: "2026-09-01", weight: 72, trained: false,
+      meals: [{ id: "m_1", time: "lunch", name: "テスト", kcal: 500 }] }];
+    var realSave = saveState; saveState = function () {};
+    addOrUpdateLog("2026-09-01", 71.8, true);
+    T.eq(state.logs[0].meals.length, 1, "meals survive a weight update");
+    T.eq(state.logs[0].meals[0].kcal, 500, "meal contents intact");
+    T.eq(state.logs[0].weight, 71.8, "weight updated");
+    T.eq(state.logs[0].trained, true, "trained updated");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("addOrUpdateLog creates a new day with empty meals", function () {
+    var saved = state.logs; state.logs = [];
+    var realSave = saveState; saveState = function () {};
+    addOrUpdateLog("2026-09-02", 70.2, false);
+    T.deepEq(state.logs[0].meals, [], "new day starts with no meals");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("computeGaugeStats/renderGauge skip a weightless day for weight-derived stats", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-08-01", weight: 80, trained: false, meals: [] },
+      { date: "2026-08-08", weight: 78.6, trained: false, meals: [] },
+      { date: "2026-08-15", trained: true, meals: [{ id: "m_1", time: "lunch", name: "朝食", kcal: 400 }] }
+    ];
+    var s = computeGaugeStats();
+    T.eq(s.hasWeight, true, "a weight-bearing day exists");
+    T.eq(s.currentWeight, 78.6, "latest weight-bearing day used, not the weightless (most recent) day");
+    T.ok(Math.abs(s.weeklyPace - 1.4) < 0.0001, "weeklyPace computed only from the two weight-bearing days");
+    T.ok(!isNaN(s.progressPct), "progressPct is a real number");
+    T.ok(!isNaN(s.remaining), "remaining is a real number");
+    renderGauge();
+    T.ok(document.getElementById("gaugePanel").innerHTML.indexOf("NaN") === -1, "gauge markup has no NaN");
+    state.logs = saved;
+  });
+
+  SELFTEST.add("computeGaugeStats/renderGauge show a placeholder when no day has a weight yet", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-08-01", trained: false, meals: [{ id: "m_1", time: "lunch", name: "テスト", kcal: 400 }] },
+      { date: "2026-08-02", trained: true, meals: [] }
+    ];
+    var s = computeGaugeStats();
+    T.eq(s.hasWeight, false, "no log has a recorded weight");
+    T.eq(s.currentWeight, getStartWeight(), "falls back to the start weight instead of undefined");
+    T.eq(s.weeklyPace, null, "no pace can be computed without weight data");
+    T.eq(s.progressPct, 0, "progress bar stays at 0, not NaN");
+    T.ok(!isNaN(s.remaining), "remaining is a real number, not NaN");
+    renderGauge();
+    T.ok(document.getElementById("gaugePanel").innerHTML.indexOf("NaN") === -1, "gauge markup has no NaN");
+    state.logs = saved;
+  });
+
+  // Regression for a reopened finding: logging a meal on a rest day creates a log
+  // entry (trained defaults to false, no weight), which must be invisible to the
+  // streak walk -- exactly as if no entry existed for that date. It must NOT
+  // bridge the calendar gap between the two real training days on either side of
+  // it, so the streak here is 1 (broken by the missing 08-15), not 2.
+  SELFTEST.add("computeGaugeStats streak is not bridged by a meal-only day with no weight/trained flag", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-08-14", weight: 80, trained: true, meals: [] },
+      { date: "2026-08-15", trained: false, meals: [{ id: "m_1", time: "lunch", name: "間食", kcal: 200 }] },
+      { date: "2026-08-16", weight: 79.5, trained: true, meals: [] }
+    ];
+    var s = computeGaugeStats();
+    T.eq(s.streak, 1, "the meal-only day is treated as if it doesn't exist, so the gap it sits in still breaks the streak");
+    state.logs = saved;
+  });
+
+  SELFTEST.add("computeGaugeStats streak is not zeroed when the most recent log is a meal-only day", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-08-15", weight: 80, trained: true, meals: [] },
+      { date: "2026-08-16", trained: false, meals: [{ id: "m_1", time: "snack", name: "間食", kcal: 150 }] }
+    ];
+    var s = computeGaugeStats();
+    T.eq(s.streak, 1, "trailing meal-only day is skipped, not read as a broken streak");
+    state.logs = saved;
+  });
+
+  SELFTEST.add("computeGaugeStats streak still breaks on a genuine rest day (weighed in, not trained)", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-08-14", weight: 80, trained: true, meals: [] },
+      { date: "2026-08-15", weight: 79.8, trained: false, meals: [] },
+      { date: "2026-08-16", weight: 79.5, trained: true, meals: [] }
+    ];
+    var s = computeGaugeStats();
+    T.eq(s.streak, 1, "a real rest day (has weight, trained=false) still breaks the streak");
+    state.logs = saved;
+  });
+
+  SELFTEST.add("addMeal appends to the right day and returns an id", function () {
+    var saved = state.logs; state.logs = [];
+    var realSave = saveState; saveState = function () {};
+    var id = addMeal("2026-09-03", "lunch", "サラダチキン", 110, 25, "manual");
+    T.eq(state.logs.length, 1, "day created");
+    T.eq(state.logs[0].meals[0].name, "サラダチキン", "meal stored");
+    T.eq(state.logs[0].meals[0].kcal, 110, "kcal stored");
+    T.eq(state.logs[0].weight, undefined, "no weight fabricated");
+    T.ok(id && id.indexOf("m_") === 0, "returns id");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("addMeal omits protein when not given", function () {
+    var saved = state.logs; state.logs = [];
+    var realSave = saveState; saveState = function () {};
+    addMeal("2026-09-03", "snack", "コーヒー", 5, undefined, "manual");
+    T.eq(state.logs[0].meals[0].protein, undefined, "protein not fabricated");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("removeMeal deletes only the targeted meal", function () {
+    var saved = state.logs; state.logs = [];
+    var realSave = saveState; saveState = function () {};
+    var a = addMeal("2026-09-03", "lunch", "A", 100, 10, "manual");
+    addMeal("2026-09-03", "dinner", "B", 200, 20, "manual");
+    T.eq(removeMeal("2026-09-03", a), true, "returns true");
+    T.eq(state.logs[0].meals.length, 1, "one left");
+    T.eq(state.logs[0].meals[0].name, "B", "correct one left");
+    T.eq(removeMeal("2026-09-03", "nope"), false, "unknown id returns false");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("logRecipe uses the recipe's own meal time, not the clock", function () {
+    var saved = state.logs; state.logs = [];
+    var realSave = saveState; saveState = function () {};
+    var recipe = MEALS.dinner[0];
+    logRecipe("dinner", 0);
+    T.eq(state.logs[0].meals.length, 1, "one meal logged");
+    var meal = state.logs[0].meals[0];
+    T.eq(meal.time, "dinner", "uses recipe's own bucket, not defaultMealTime()");
+    T.eq(meal.name, recipe.name, "recipe name stored");
+    T.eq(meal.kcal, recipe.kcal, "recipe kcal stored");
+    T.eq(meal.protein, recipe.protein, "recipe protein stored");
+    T.eq(meal.source, "recipe", "source is recipe");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("logRecipe's toast undo removes only the logged meal", function () {
+    var saved = state.logs; state.logs = [];
+    var realSave = saveState; saveState = function () {};
+    var date = todayStr();
+    addMeal(date, "lunch", "手入力", 300, 20, "manual");
+    logRecipe("breakfast", 0);
+    T.eq(state.logs[0].meals.length, 2, "manual meal plus logged recipe");
+    var toastBtn = document.querySelector("#toast .toast-undo");
+    T.ok(!!toastBtn, "undo button rendered");
+    toastBtn.click();
+    T.eq(state.logs[0].meals.length, 1, "recipe meal removed, manual meal intact");
+    T.eq(state.logs[0].meals[0].name, "手入力", "the other meal is untouched");
+    saveState = realSave; state.logs = saved;
+  });
+
+  SELFTEST.add("upsertFood merges by normalized name and counts uses", function () {
+    var saved = state.foods; state.foods = [];
+    var realSave = saveState; saveState = function () {};
+    upsertFood("サラダチキン", 110, 25);
+    upsertFood("  サラダチキン  ", 115, 26);
+    T.eq(state.foods.length, 1, "merged");
+    T.eq(state.foods[0].useCount, 2, "count incremented");
+    T.eq(state.foods[0].kcal, 115, "latest values win");
+    T.eq(state.foods[0].protein, 26, "latest values win");
+    saveState = realSave; state.foods = saved;
+  });
+
+  SELFTEST.add("topFoods orders by useCount then recency", function () {
+    var saved = state.foods;
+    state.foods = [
+      { id: "f_1", name: "A", kcal: 100, protein: 5, useCount: 1, lastUsedAt: "2026-09-01T00:00:00.000Z" },
+      { id: "f_2", name: "B", kcal: 100, protein: 5, useCount: 5, lastUsedAt: "2026-09-01T00:00:00.000Z" },
+      { id: "f_3", name: "C", kcal: 100, protein: 5, useCount: 1, lastUsedAt: "2026-09-02T00:00:00.000Z" }
+    ];
+    var top = topFoods(3);
+    T.eq(top[0].name, "B", "highest count first");
+    T.eq(top[1].name, "C", "then most recent");
+    T.eq(topFoods(1).length, 1, "limit respected");
+    state.foods = saved;
+  });
+
+  SELFTEST.add("renderFoodChips shows empty-state when no foods recorded yet", function () {
+    var saved = state.foods; state.foods = [];
+    renderFoodChips();
+    T.ok(document.getElementById("foodChips").innerHTML.indexOf("empty-state") !== -1, "empty state shown");
+    state.foods = saved;
+  });
+
+  SELFTEST.add("renderFoodChips escapes food names into chip markup", function () {
+    var saved = state.foods;
+    state.foods = [{ id: "f_x", name: "<b>chicken</b>&\"'", kcal: 110, protein: 25, useCount: 1, lastUsedAt: "2026-09-01T00:00:00.000Z" }];
+    renderFoodChips();
+    var html = document.getElementById("foodChips").innerHTML;
+    T.ok(html.indexOf("<b>chicken</b>") === -1, "raw markup not present");
+    T.ok(html.indexOf("&lt;b&gt;chicken&lt;/b&gt;") !== -1, "name escaped");
+    T.ok(html.indexOf("110kcal / P25") !== -1, "macro line rendered");
+    state.foods = saved;
+  });
+
+  // Regression for the MINOR finding: renderHistory looked up LOG_MEAL_TIME_LABEL[m.time]
+  // with no own-property guard (the import validator already had one, this render
+  // site did not), so an unknown time could resolve to an inherited Object.prototype
+  // property instead of a real label.
+  SELFTEST.add("renderHistory guards against a meal time inherited from Object.prototype", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-09-01", trained: false, meals: [{ id: "m_1", time: "constructor", name: "A", kcal: 100 }] }
+    ];
+    renderHistory();
+    var html = document.getElementById("historyList").innerHTML;
+    T.ok(html.indexOf("function") === -1, "inherited Object.prototype property is not rendered as the label");
+    state.logs = saved;
+  });
+
+  SELFTEST.add("import accepts v1 payloads", function () {
+    T.eq(validateImportedData({ logs: [{ date: "2026-09-01", weight: 72, calories: 1200 }] }), null, "v1 ok");
+  });
+
+  SELFTEST.add("import accepts v2 payloads including weightless days", function () {
+    T.eq(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", trained: false, meals: [{ id: "m_1", time: "lunch", name: "A", kcal: 100 }] }
+    ], foods: [] }), null, "weightless day accepted");
+  });
+
+  SELFTEST.add("import rejects malformed data", function () {
+    T.ok(validateImportedData({ logs: [{ date: "bad", weight: 72 }] }), "bad date rejected");
+    T.ok(validateImportedData({ logs: [{ date: "2026-09-01", weight: "72" }] }), "non-numeric weight rejected");
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [{ date: "2026-09-01", meals: "nope" }] }), "meals must be an array");
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ id: "m_1", time: "brunch", name: "A", kcal: 100 }] }
+    ]}), "unknown meal time rejected");
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ id: "m_1", time: "lunch", name: "A", kcal: "100" }] }
+    ]}), "non-numeric kcal rejected");
+  });
+
+  SELFTEST.add("import round-trips through migration", function () {
+    var v1 = { logs: [{ date: "2026-09-01", weight: 72, calories: 1200, protein: 90 }] };
+    var migrated = migrateToV2(v1);
+    T.eq(validateImportedData(migrated), null, "migrated payload validates");
+    T.eq(dayKcal(migrated.logs[0]), 1200, "totals survive");
+  });
+
+  SELFTEST.add("escapeHtml neutralises markup in food names", function () {
+    T.eq(escapeHtml('<img src=x onerror=alert(1)>'), "&lt;img src=x onerror=alert(1)&gt;", "tags escaped");
+    T.eq(escapeHtml("A & B"), "A &amp; B", "ampersand escaped");
+  });
+
+  SELFTEST.add("import rejects meal times inherited from Object.prototype", function () {
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ id: "m_1", time: "constructor", name: "A", kcal: 100 }] }
+    ] }), "'constructor' as a meal time is rejected, not treated as a valid bucket");
+  });
+
+  // Regression for the MINOR finding: meal/food ids from imported JSON are
+  // interpolated unescaped into HTML attributes (data-meal, data-food) at render
+  // time, but validateImportedData never checked id at all.
+  SELFTEST.add("import rejects meal and food ids containing unsafe characters", function () {
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ id: 'm_1" onmouseover="alert(1)', time: "lunch", name: "A", kcal: 100 }] }
+    ] }), "quote-containing meal id rejected");
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [], foods: [
+      { id: 'f_1"><script>', name: "A", kcal: 100 }
+    ] }), "quote-containing food id rejected");
+    T.ok(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ id: 42, time: "lunch", name: "A", kcal: 100 }] }
+    ] }), "non-string meal id rejected");
+    T.eq(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ id: "m_1", time: "lunch", name: "A", kcal: 100 }] }
+    ], foods: [{ id: "f_1", name: "A", kcal: 100 }] }), null, "safe ids still accepted");
+    T.eq(validateImportedData({ schemaVersion: 2, logs: [
+      { date: "2026-09-01", meals: [{ time: "lunch", name: "A", kcal: 100 }] }
+    ] }), null, "an omitted id is still accepted (id is optional, not required)");
+  });
+
+  SELFTEST.add("metricLogs derives calories and protein from meals", function () {
+    var saved = state.logs;
+    state.logs = [
+      { date: "2026-09-01", weight: 72, meals: [{ id: "m_1", time: "lunch", name: "A", kcal: 500, protein: 40 }] },
+      { date: "2026-09-02", weight: 71, meals: [] }
+    ];
+    var cal = metricLogs("calories");
+    T.eq(cal.length, 1, "days without meals are skipped");
+    T.eq(cal[0].calories, 500, "derived from meals");
+    T.eq(metricLogs("protein")[0].protein, 40, "protein derived");
+    T.eq(metricLogs("weight").length, 2, "weight series unchanged");
+    state.logs = saved;
+  });
 
   var PROFILE = {
     heightCm: 176,
@@ -1813,6 +2456,38 @@
   var MEAL_TIME_LABEL = { breakfast: "朝食", lunch: "昼食", dinner: "夕食" };
   var MEAL_TIME_ORDER = ["breakfast", "lunch", "dinner"];
 
+  var LOG_MEAL_TIME_LABEL = { breakfast: "朝食", lunch: "昼食", dinner: "夕食", snack: "間食", other: "その他" };
+  var LOG_MEAL_TIME_ORDER = ["breakfast", "lunch", "dinner", "snack", "other"];
+
+  // Guards against an unknown/imported m.time resolving to an inherited
+  // Object.prototype property (e.g. "constructor") instead of a real label.
+  function mealTimeLabel(t) {
+    return Object.prototype.hasOwnProperty.call(LOG_MEAL_TIME_LABEL, t) ? LOG_MEAL_TIME_LABEL[t] : "";
+  }
+
+  function hasMeals(log) {
+    return !!(log && Array.isArray(log.meals) && log.meals.length > 0);
+  }
+
+  function dayKcal(log) {
+    if (!log || !Array.isArray(log.meals)) return 0;
+    return log.meals.reduce(function (s, m) { return s + (typeof m.kcal === "number" ? m.kcal : 0); }, 0);
+  }
+
+  function dayProtein(log) {
+    if (!log || !Array.isArray(log.meals)) return 0;
+    return log.meals.reduce(function (s, m) { return s + (typeof m.protein === "number" ? m.protein : 0); }, 0);
+  }
+
+  function defaultMealTime(date) {
+    var d = date || new Date();
+    var mins = d.getHours() * 60 + d.getMinutes();
+    if (mins < 10 * 60 + 30) return "breakfast";
+    if (mins < 15 * 60) return "lunch";
+    if (mins < 21 * 60) return "dinner";
+    return "snack";
+  }
+
   // deterministic per-date hash so "today's menu" is reproducible / stable across reloads
   function dailyIndex(dateStr, mealTime, poolSize) {
     var hash = 0;
@@ -1821,23 +2496,97 @@
     return hash % poolSize;
   }
 
-  var state = { logs: [], profile: null };
+  var BACKUP_KEY_V1 = "nexra-diet-tracker-backup-v1";
+  var BACKUP_KEY_CORRUPT = "nexra-diet-tracker-backup-corrupt";
+  var idCounter = 0;
+
+  function newId(prefix) {
+    idCounter++;
+    return prefix + Date.now() + "_" + idCounter;
+  }
+
+  function migrateToV2(parsed) {
+    if (!parsed || typeof parsed !== "object") return { schemaVersion: 2, logs: [], foods: [] };
+    if (parsed.schemaVersion) return parsed;
+
+    var logs = Array.isArray(parsed.logs) ? parsed.logs : [];
+    var out = { schemaVersion: 2, logs: [], foods: Array.isArray(parsed.foods) ? parsed.foods : [] };
+    if (parsed.profile) out.profile = parsed.profile;
+
+    logs.forEach(function (l) {
+      // l.meals is real per-meal data already; preserve it exactly instead of
+      // rebuilding from the legacy calories/protein totals (which would wipe it).
+      var entry = { date: l.date, trained: !!l.trained, meals: Array.isArray(l.meals) ? l.meals.slice() : [] };
+      if (typeof l.weight === "number") entry.weight = l.weight;
+      var hasCal = typeof l.calories === "number";
+      var hasPro = typeof l.protein === "number";
+      if (hasCal || hasPro) {
+        // Legacy calories/protein can appear alongside a real meals array (e.g. a
+        // hand-edited or partially-migrated import). Rather than silently dropping
+        // that old total, fold it in as its own migrated entry so the day's total
+        // (always derived by summing meals) still reflects it.
+        var meal = {
+          id: newId("m_"), time: "other", name: "まとめて記録（移行）",
+          kcal: hasCal ? l.calories : 0, source: "migrated"
+        };
+        if (hasPro) meal.protein = l.protein;
+        entry.meals.push(meal);
+      }
+      out.logs.push(entry);
+    });
+    return out;
+  }
+
+  var state = { logs: [], foods: [], profile: null, schemaVersion: 2 };
+
+  function backupOnce(storageKey, raw) {
+    if (!raw) return false;
+    if (localStorage.getItem(storageKey)) return false;
+    localStorage.setItem(storageKey, raw);
+    return true;
+  }
+
+  // Parses raw JSON, backing the raw string up under corruptKey (via backupOnce,
+  // so it never overwrites an existing backup) before it can be discarded. Kept
+  // separate from loadState so it can be exercised in tests without touching the
+  // app's real storage keys.
+  function safeParseState(raw, corruptKey) {
+    try {
+      return { ok: true, data: JSON.parse(raw) };
+    } catch (e) {
+      backupOnce(corruptKey, raw);
+      return { ok: false, data: null };
+    }
+  }
 
   function loadState() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        var parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.logs)) state.logs = parsed.logs;
-        if (parsed && parsed.profile && typeof parsed.profile.startWeight === "number" && typeof parsed.profile.goalWeight === "number") state.profile = parsed.profile;
+      if (!raw) return;
+      var parseResult = safeParseState(raw, BACKUP_KEY_CORRUPT);
+      if (!parseResult.ok) {
+        state.logs = [];
+        state.foods = [];
+        return;
       }
+      var parsed = parseResult.data;
+      var needsMigration = parsed && !parsed.schemaVersion;
+      if (needsMigration) backupOnce(BACKUP_KEY_V1, raw);   // 退避は一度だけ・既存があれば上書きしない
+      var data = migrateToV2(parsed);
+      if (Array.isArray(data.logs)) state.logs = data.logs;
+      if (Array.isArray(data.foods)) state.foods = data.foods;
+      if (data.profile && typeof data.profile.startWeight === "number" && typeof data.profile.goalWeight === "number") {
+        state.profile = data.profile;
+      }
+      if (needsMigration) saveState();
     } catch (e) {
       state.logs = [];
+      state.foods = [];
     }
   }
 
   function saveState() {
-    var data = { logs: state.logs };
+    var data = { schemaVersion: 2, logs: state.logs, foods: state.foods };
     if (state.profile) data.profile = state.profile;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }
@@ -1856,26 +2605,84 @@
     return y + "-" + m + "-" + day;
   }
 
-  function toPositiveIntOrUndef(v) {
-    var n = parseFloat(v);
-    return (!isNaN(n) && n > 0) ? Math.round(n) : undefined;
-  }
-
-  function addOrUpdateLog(date, weight, trained, calories, protein) {
+  function addOrUpdateLog(date, weight, trained) {
     var idx = state.logs.findIndex(function (l) { return l.date === date; });
-    var entry = { date: date, weight: Math.round(weight * 10) / 10, trained: !!trained };
-    var cal = toPositiveIntOrUndef(calories);
-    var pro = toPositiveIntOrUndef(protein);
-    if (cal !== undefined) entry.calories = cal;
-    if (pro !== undefined) entry.protein = pro;
-    if (idx >= 0) state.logs[idx] = entry;
-    else state.logs.push(entry);
+    if (idx >= 0) {
+      state.logs[idx].weight = Math.round(weight * 10) / 10;
+      state.logs[idx].trained = !!trained;
+      if (!Array.isArray(state.logs[idx].meals)) state.logs[idx].meals = [];
+    } else {
+      state.logs.push({ date: date, weight: Math.round(weight * 10) / 10, trained: !!trained, meals: [] });
+    }
     saveState();
   }
 
   function deleteLog(date) {
     state.logs = state.logs.filter(function (l) { return l.date !== date; });
     saveState();
+  }
+
+  function normalizeFoodName(name) {
+    return String(name == null ? "" : name).trim().toLowerCase();
+  }
+
+  function findOrCreateLog(date) {
+    var idx = state.logs.findIndex(function (l) { return l.date === date; });
+    if (idx >= 0) {
+      if (!Array.isArray(state.logs[idx].meals)) state.logs[idx].meals = [];
+      return state.logs[idx];
+    }
+    var entry = { date: date, trained: false, meals: [] };
+    state.logs.push(entry);
+    return entry;
+  }
+
+  function addMeal(date, time, name, kcal, protein, source) {
+    var log = findOrCreateLog(date);
+    var meal = {
+      id: newId("m_"), time: time, name: String(name).trim(),
+      kcal: Math.round(kcal), source: source || "manual"
+    };
+    if (typeof protein === "number" && !isNaN(protein)) meal.protein = Math.round(protein);
+    log.meals.push(meal);
+    saveState();
+    return meal.id;
+  }
+
+  function removeMeal(date, id) {
+    var log = state.logs.find(function (l) { return l.date === date; });
+    if (!log || !Array.isArray(log.meals)) return false;
+    var before = log.meals.length;
+    log.meals = log.meals.filter(function (m) { return m.id !== id; });
+    if (log.meals.length === before) return false;
+    saveState();
+    return true;
+  }
+
+  function upsertFood(name, kcal, protein) {
+    var key = normalizeFoodName(name);
+    var existing = state.foods.find(function (f) { return normalizeFoodName(f.name) === key; });
+    var now = new Date().toISOString();
+    if (existing) {
+      existing.useCount = (existing.useCount || 0) + 1;
+      existing.kcal = Math.round(kcal);
+      if (typeof protein === "number" && !isNaN(protein)) existing.protein = Math.round(protein);
+      existing.lastUsedAt = now;
+      saveState();
+      return existing;
+    }
+    var food = { id: newId("f_"), name: String(name).trim(), kcal: Math.round(kcal), useCount: 1, lastUsedAt: now };
+    if (typeof protein === "number" && !isNaN(protein)) food.protein = Math.round(protein);
+    state.foods.push(food);
+    saveState();
+    return food;
+  }
+
+  function topFoods(limit) {
+    return state.foods.slice().sort(function (a, b) {
+      if ((b.useCount || 0) !== (a.useCount || 0)) return (b.useCount || 0) - (a.useCount || 0);
+      return String(b.lastUsedAt || "") < String(a.lastUsedAt || "") ? -1 : 1;
+    }).slice(0, limit || 12);
   }
 
   function fmt1(n) {
@@ -1900,13 +2707,15 @@
   function computeGaugeStats() {
     var logsAsc = sortedLogsAsc();
     var hasLogs = logsAsc.length > 0;
-    var currentWeight = hasLogs ? logsAsc[logsAsc.length - 1].weight : getStartWeight();
+    var weightLogsAsc = metricLogs("weight");
+    var hasWeight = weightLogsAsc.length > 0;
+    var currentWeight = hasWeight ? weightLogsAsc[weightLogsAsc.length - 1].weight : getStartWeight();
     var remaining = currentWeight - getGoalWeight();
 
     var weeklyPace = null;
-    if (logsAsc.length >= 2) {
-      var first = logsAsc[0];
-      var last = logsAsc[logsAsc.length - 1];
+    if (weightLogsAsc.length >= 2) {
+      var first = weightLogsAsc[0];
+      var last = weightLogsAsc[weightLogsAsc.length - 1];
       var elapsedDays = daysBetween(first.date, last.date);
       var elapsedWeeks = elapsedDays / 7;
       if (elapsedWeeks > 0) {
@@ -1919,22 +2728,41 @@
       etaWeeks = remaining / weeklyPace;
     }
 
+    // A day only carries training information if it was actually logged via the
+    // weight/trained form (addOrUpdateLog), which always stamps a numeric weight,
+    // or has trained explicitly set true. A meal-only day (created by
+    // findOrCreateLog) defaults trained to false with no weight, and must be
+    // treated exactly as if no entry existed for that date at all: it must
+    // neither break the streak (it isn't a rest day) nor bridge a real gap
+    // between two training-bearing days (it isn't a training day either).
+    function isTrainingBearingDay(l) {
+      return typeof l.weight === "number" || l.trained === true;
+    }
+
     var streak = 0;
     if (hasLogs) {
       var byDate = {};
-      state.logs.forEach(function (l) { byDate[l.date] = l; });
-      var cursor = logsAsc[logsAsc.length - 1].date;
-      while (byDate[cursor] && byDate[cursor].trained) {
-        streak++;
-        cursor = prevDateStr(cursor);
+      state.logs.forEach(function (l) {
+        if (isTrainingBearingDay(l)) byDate[l.date] = l;
+      });
+      var trainingBearingDates = Object.keys(byDate).sort();
+      if (trainingBearingDates.length > 0) {
+        var cursor = trainingBearingDates[trainingBearingDates.length - 1];
+        while (byDate[cursor] && byDate[cursor].trained) {
+          streak++;
+          cursor = prevDateStr(cursor);
+        }
       }
     }
 
-    var progressPct = ((getStartWeight() - currentWeight) / (getStartWeight() - getGoalWeight())) * 100;
+    var progressPct = hasWeight
+      ? ((getStartWeight() - currentWeight) / (getStartWeight() - getGoalWeight())) * 100
+      : 0;
     progressPct = Math.max(0, Math.min(100, progressPct));
 
     return {
       hasLogs: hasLogs,
+      hasWeight: hasWeight,
       currentWeight: currentWeight,
       remaining: remaining,
       weeklyPace: weeklyPace,
@@ -2010,12 +2838,12 @@
   function renderGauge() {
     var s = computeGaugeStats();
     var el = document.getElementById("gaugePanel");
-    var logsAsc = sortedLogsAsc();
+    var weightLogsAsc = metricLogs("weight");
 
     var paceText = s.weeklyPace === null ? "—" : (s.weeklyPace >= 0 ? "-" : "+") + fmt1(Math.abs(s.weeklyPace)) + "kg/週";
     var paceEval = paceEvaluation(s.weeklyPace, s.currentWeight);
     var etaText = "—";
-    if (s.remaining <= 0 && s.hasLogs) {
+    if (s.remaining <= 0 && s.hasWeight) {
       etaText = "達成!";
     } else if (s.etaWeeks !== null) {
       etaText = fmt1(s.etaWeeks) + " 週";
@@ -2039,17 +2867,17 @@
       return '<span class="tick" style="left:' + pct + '%">' + tv + '</span>';
     }).join("");
 
-    var sparkHtml = logsAsc.length >= 2 ? '<div class="spark-wrap"><canvas id="weightSpark"></canvas></div>' : '';
+    var sparkHtml = weightLogsAsc.length >= 2 ? '<div class="spark-wrap"><canvas id="weightSpark"></canvas></div>' : '';
 
     el.innerHTML =
       '<div class="gauge-top">' +
         '<div class="gauge-stat">' +
           '<div class="label">現在の体重</div>' +
-          '<div class="value num">' + fmt1(s.currentWeight) + '<small> kg</small></div>' +
+          '<div class="value num">' + (s.hasWeight ? fmt1(s.currentWeight) + '<small> kg</small>' : '—') + '</div>' +
         '</div>' +
         '<div class="gauge-stat accent">' +
           '<div class="label">目標まで</div>' +
-          '<div class="value num">' + fmt1(Math.max(s.remaining, 0)) + '<small> kg</small></div>' +
+          '<div class="value num">' + (s.hasWeight ? fmt1(Math.max(s.remaining, 0)) + '<small> kg</small>' : '—') + '</div>' +
         '</div>' +
       '</div>' +
       sparkHtml +
@@ -2064,15 +2892,15 @@
         '<div class="mini-stat"><div class="label">連続トレ日数</div><div class="value num">' + streakText + '</div></div>' +
       '</div>';
 
-    if (logsAsc.length >= 2) {
+    if (weightLogsAsc.length >= 2) {
       var sparkCanvas = document.getElementById("weightSpark");
-      drawSparkline(sparkCanvas, logsAsc.slice(-14).map(function (l) { return l.weight; }));
+      drawSparkline(sparkCanvas, weightLogsAsc.slice(-14).map(function (l) { return l.weight; }));
       if (!sparkResizeBound) {
         sparkResizeBound = true;
         window.addEventListener("resize", function () {
           var c = document.getElementById("weightSpark");
-          var logs = sortedLogsAsc();
-          if (c && logs.length >= 2) drawSparkline(c, logs.slice(-14).map(function (l) { return l.weight; }));
+          var wLogs = metricLogs("weight");
+          if (c && wLogs.length >= 2) drawSparkline(c, wLogs.slice(-14).map(function (l) { return l.weight; }));
         });
       }
     }
@@ -2090,17 +2918,29 @@
         ? '<span class="trained-badge yes">&#9989; ジム</span>'
         : '<span class="trained-badge no">&#8212;</span>';
       var macroParts = [];
-      if (typeof l.calories === "number") macroParts.push(l.calories + "kcal");
-      if (typeof l.protein === "number") macroParts.push(l.protein + "g");
+      if (hasMeals(l)) {
+        macroParts.push(dayKcal(l) + "kcal");
+        var p = dayProtein(l);
+        if (p > 0) macroParts.push(p + "g");
+      }
       var macroBadge = macroParts.length ? '<span class="macro-badge">' + macroParts.join(" / ") + '</span>' : "";
       return (
         '<div class="history-row" data-date="' + l.date + '">' +
           '<span class="date num">' + l.date + '</span>' +
-          '<span class="weight num">' + fmt1(l.weight) + 'kg</span>' +
+          '<span class="weight num">' + (typeof l.weight === "number" ? fmt1(l.weight) + "kg" : "—") + '</span>' +
           badge +
           macroBadge +
           '<span class="spacer"></span>' +
           '<button class="del-btn" data-del="' + l.date + '" aria-label="削除">&times;</button>' +
+        '</div>' +
+        '<div class="history-meals" data-meals-for="' + l.date + '" hidden>' +
+          (hasMeals(l)
+            ? l.meals.map(function (m) {
+                return '<div class="history-meal-row"><span>' + mealTimeLabel(m.time) + '</span>' +
+                  '<span class="hm-name">' + escapeHtml(m.name) + '</span>' +
+                  '<span class="num">' + m.kcal + 'kcal' + (typeof m.protein === "number" ? " / P" + m.protein + "g" : "") + '</span></div>';
+              }).join("")
+            : '<div class="history-meal-row empty">食事の記録はありません</div>') +
         '</div>'
       );
     }).join("");
@@ -2113,6 +2953,20 @@
         deleteLog(dateStr);
         renderAll();
       });
+    });
+
+    el.querySelectorAll(".history-row").forEach(function (row) {
+      row.addEventListener("click", function (e) {
+        if (e.target.closest && e.target.closest("[data-del]")) return;
+        var panel = el.querySelector('[data-meals-for="' + row.getAttribute("data-date") + '"]');
+        if (panel) panel.hidden = !panel.hidden;
+      });
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
   }
 
@@ -2131,25 +2985,54 @@
     var el = document.getElementById("todayTargetCard");
     var today = todayStr();
     var log = state.logs.find(function (l) { return l.date === today; });
-    var hasCalories = log && typeof log.calories === "number";
-    var hasProtein = log && typeof log.protein === "number";
 
-    if (!log || (!hasCalories && !hasProtein)) {
-      el.innerHTML = '<div class="empty-state">本日のカロリー・タンパク質はまだ記録されていません。「記録を追加」から入力できます。</div>';
+    if (!hasMeals(log)) {
+      el.innerHTML = '<div class="empty-state">本日の食事はまだ記録されていません。「食事を追加」から記録できます。</div>';
       return;
     }
 
-    var rows = "";
-    if (hasCalories) rows += targetBarHtml("カロリー", log.calories, getTargetCalories(), "kcal");
-    if (hasProtein) rows += targetBarHtml("タンパク質", log.protein, getTargetProtein(), "g");
-    el.innerHTML = rows;
+    var html = targetBarHtml("カロリー", dayKcal(log), getTargetCalories(), "kcal") +
+               targetBarHtml("タンパク質", dayProtein(log), getTargetProtein(), "g");
+
+    LOG_MEAL_TIME_ORDER.forEach(function (mt) {
+      var items = log.meals.filter(function (m) { return m.time === mt; });
+      if (mt === "other" && items.length === 0) return;
+      var rows = items.length
+        ? items.map(function (m) {
+            var macro = m.kcal + "kcal" + (typeof m.protein === "number" ? " / P" + m.protein + "g" : "");
+            return '<div class="meal-row">' +
+              '<span class="meal-name">' + escapeHtml(m.name) + '</span>' +
+              '<span class="meal-macro num">' + macro + '</span>' +
+              '<button class="meal-del" data-meal="' + m.id + '" aria-label="削除">&times;</button>' +
+            '</div>';
+          }).join("")
+        : '<div class="meal-row empty">（未記録）</div>';
+      html += '<div class="meal-bucket"><div class="meal-bucket-label">' + LOG_MEAL_TIME_LABEL[mt] + '</div>' + rows + '</div>';
+    });
+
+    el.innerHTML = html;
+
+    el.querySelectorAll("[data-meal]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        removeMeal(today, btn.getAttribute("data-meal"));   // 1食削除は確認を出さない
+        renderAll();
+      });
+    });
   }
 
   var currentChartMetric = "weight";
   var chartResizeBound = false;
 
   function metricLogs(metric) {
-    return sortedLogsAsc().filter(function (l) { return typeof l[metric] === "number"; });
+    if (metric === "weight") {
+      return sortedLogsAsc().filter(function (l) { return typeof l.weight === "number"; });
+    }
+    return sortedLogsAsc().filter(hasMeals).map(function (l) {
+      var copy = { date: l.date };
+      copy.calories = dayKcal(l);
+      copy.protein = dayProtein(l);
+      return copy;
+    });
   }
 
   function renderChart() {
@@ -2726,11 +3609,13 @@
           '<span class="srr-name">' + r.m.name + '</span>' +
           '<span class="srr-macro num">' + r.m.kcal + 'kcal / ' + r.m.protein + 'g</span>' +
           tagsHtml +
+          '<button class="recipe-log-btn" type="button">記録に追加</button>' +
         '</div>'
       );
     }).join("");
 
     el.innerHTML = countHtml + '<div class="search-result-list">' + rowsHtml + '</div>';
+    bindRecipeLogButtons(el);
   }
 
   function renderTagChips() {
@@ -2785,6 +3670,60 @@
     });
   }
 
+  var toastTimer = null;
+  function showToast(message, undoFn) {
+    var el = document.getElementById("toast");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "toast";
+      el.className = "toast";
+      document.body.appendChild(el);
+    }
+    el.innerHTML = '<span>' + escapeHtml(message) + '</span>' +
+      (undoFn ? '<button class="toast-undo" type="button">取り消し</button>' : "");
+    el.classList.add("show");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove("show"); }, 5000);
+    if (undoFn) {
+      el.querySelector(".toast-undo").addEventListener("click", function () {
+        undoFn();
+        el.classList.remove("show");
+        renderAll();
+      });
+    }
+  }
+
+  // Logs the recipe found at MEALS[mt][idx] as today's meal. mt/idx are
+  // recovered from the data-mt/data-idx attributes already present on the
+  // element that identified the recipe (meal card, search result row, or
+  // the open detail modal) — no separate index is introduced.
+  function logRecipe(mt, idx) {
+    var recipe = MEALS[mt] && MEALS[mt][idx];
+    if (!recipe) return;
+    var date = todayStr();
+    // the recipe's own meal-time bucket is used as-is, not the clock
+    var id = addMeal(date, mt, recipe.name, recipe.kcal, recipe.protein, "recipe");
+    renderAll();
+    showToast("+" + recipe.kcal + "kcal / P" + recipe.protein + "g を記録しました", function () {
+      removeMeal(date, id);
+    });
+  }
+
+  // Recipe cards and search result rows are regenerated on every render,
+  // so their "記録に追加" buttons are (re)bound right after the HTML that
+  // contains them is written. Each button's enclosing element already
+  // carries data-mt/data-idx (used elsewhere to open the detail modal).
+  function bindRecipeLogButtons(container) {
+    container.querySelectorAll(".recipe-log-btn").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation(); // don't also trigger the card's modal-open handler
+        var host = btn.closest("[data-mt]");
+        if (!host) return;
+        logRecipe(host.getAttribute("data-mt"), parseInt(host.getAttribute("data-idx"), 10));
+      });
+    });
+  }
+
   function renderMeals() {
     var el = document.getElementById("mealsArea");
     if (recipeSearchActive()) {
@@ -2816,6 +3755,7 @@
             '<div class="macro"><div class="num">' + m.kcal + '</div><div class="label">kcal</div></div>' +
             '<div class="macro"><div class="num">' + m.protein + 'g</div><div class="label">protein</div></div>' +
           '</div>' +
+          '<button class="recipe-log-btn" type="button">記録に追加</button>' +
           '<div class="recipe-hint">レシピを見る &gt;</div>' +
         '</div>'
       );
@@ -2841,11 +3781,15 @@
     '</details>';
 
     el.innerHTML = summaryHtml + '<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">' + cardsHtml + '</div><div style="margin-top:10px;">' + allMenuHtml + '</div>';
+    bindRecipeLogButtons(el);
   }
 
   function openRecipe(mt, idx) {
     var m = MEALS[mt] && MEALS[mt][idx];
     if (!m) return;
+    var overlay = document.getElementById("recipeOverlay");
+    overlay.setAttribute("data-mt", mt);
+    overlay.setAttribute("data-idx", idx);
     document.getElementById("recipeTime").textContent = MEAL_TIME_LABEL[mt];
     document.getElementById("recipeTitle").textContent = m.name;
     document.getElementById("recipeMacros").innerHTML =
@@ -2872,6 +3816,13 @@
     });
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") closeRecipe();
+    });
+    document.getElementById("recipeLogBtn").addEventListener("click", function (e) {
+      e.stopPropagation();
+      var mt = overlay.getAttribute("data-mt");
+      var idx = parseInt(overlay.getAttribute("data-idx"), 10);
+      if (!mt || isNaN(idx)) return;
+      logRecipe(mt, idx);
     });
     // delegate taps so listeners survive re-renders of #mealsArea
     document.getElementById("mealsArea").addEventListener("click", function (e) {
@@ -2913,6 +3864,33 @@
     renderHistory();
     renderChart();
     renderMeals();
+    renderFoodChips();
+  }
+
+  function renderFoodChips() {
+    var el = document.getElementById("foodChips");
+    var foods = topFoods(12);
+    if (foods.length === 0) {
+      el.innerHTML = '<div class="empty-state">手入力した食事はここに残り、次回から1タップで追加できます。</div>';
+      return;
+    }
+    el.innerHTML = foods.map(function (f) {
+      var macro = f.kcal + "kcal" + (typeof f.protein === "number" ? " / P" + f.protein : "");
+      return '<button type="button" class="food-chip" data-food="' + f.id + '">' +
+        escapeHtml(f.name) + '<span class="food-chip-macro">' + macro + '</span></button>';
+    }).join("");
+
+    el.querySelectorAll("[data-food]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var food = state.foods.find(function (f) { return f.id === btn.getAttribute("data-food"); });
+        if (!food) return;
+        var date = document.getElementById("m-date").value || todayStr();
+        var time = document.getElementById("m-time").value;
+        addMeal(date, time, food.name, food.kcal, food.protein, "food");
+        upsertFood(food.name, food.kcal, food.protein);
+        renderAll();
+      });
+    });
   }
 
   function setupTabs() {
@@ -2939,15 +3917,42 @@
       var date = dateInput.value || todayStr();
       var weight = parseFloat(document.getElementById("f-weight").value);
       var trained = document.getElementById("f-trained").checked;
-      var calories = document.getElementById("f-calories").value;
-      var protein = document.getElementById("f-protein").value;
       if (isNaN(weight) || weight <= 0) return;
-      addOrUpdateLog(date, weight, trained, calories, protein);
+      addOrUpdateLog(date, weight, trained);
       document.getElementById("f-weight").value = "";
-      document.getElementById("f-calories").value = "";
-      document.getElementById("f-protein").value = "";
       document.getElementById("f-trained").checked = false;
       dateInput.value = todayStr();
+      renderAll();
+    });
+  }
+
+  function setupMealForm() {
+    var form = document.getElementById("mealForm");
+    var dateInput = document.getElementById("m-date");
+    dateInput.value = todayStr();
+    document.getElementById("m-time").value = defaultMealTime(new Date());
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var status = document.getElementById("mealStatus");
+      var name = document.getElementById("m-name").value.trim();
+      var kcal = parseFloat(document.getElementById("m-kcal").value);
+      var proteinRaw = document.getElementById("m-protein").value;
+      var protein = proteinRaw === "" ? undefined : parseFloat(proteinRaw);
+
+      if (!name) { status.textContent = "名前を入力してください"; status.className = "data-status err"; return; }
+      if (isNaN(kcal) || kcal < 0) { status.textContent = "カロリーを正しく入力してください"; status.className = "data-status err"; return; }
+      if (protein !== undefined && (isNaN(protein) || protein < 0)) { status.textContent = "タンパク質を正しく入力してください"; status.className = "data-status err"; return; }
+
+      var date = dateInput.value || todayStr();
+      addMeal(date, document.getElementById("m-time").value, name, kcal, protein, "manual");
+      upsertFood(name, kcal, protein);
+
+      document.getElementById("m-name").value = "";
+      document.getElementById("m-kcal").value = "";
+      document.getElementById("m-protein").value = "";
+      status.textContent = name + " を追加しました";
+      status.className = "data-status ok";
       renderAll();
     });
   }
@@ -2985,6 +3990,10 @@
     return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
   }
 
+  // ids are interpolated unescaped into HTML attributes (data-meal, data-food),
+  // so imported ids must be restricted to a conservative, attribute-safe charset.
+  var SAFE_ID_RE = /^[A-Za-z0-9_-]+$/;
+
   function validateImportedData(data) {
     if (!data || typeof data !== "object") return "JSONの形式が正しくありません";
     if (!Array.isArray(data.logs)) return "logsが見つかりません";
@@ -2992,9 +4001,31 @@
       var l = data.logs[i];
       if (!l || typeof l !== "object") return "記録データの形式が正しくありません";
       if (!isValidDateStr(l.date)) return "記録に不正な日付があります (" + i + "件目)";
-      if (typeof l.weight !== "number" || isNaN(l.weight)) return "記録に不正な体重があります (" + i + "件目)";
+      if (l.weight !== undefined && (typeof l.weight !== "number" || isNaN(l.weight))) return "記録に不正な体重があります (" + i + "件目)";
       if (l.calories !== undefined && (typeof l.calories !== "number" || isNaN(l.calories))) return "記録に不正なカロリーがあります (" + i + "件目)";
       if (l.protein !== undefined && (typeof l.protein !== "number" || isNaN(l.protein))) return "記録に不正なタンパク質量があります (" + i + "件目)";
+      if (l.meals !== undefined) {
+        if (!Array.isArray(l.meals)) return "記録の食事データが配列ではありません (" + i + "件目)";
+        for (var j = 0; j < l.meals.length; j++) {
+          var m = l.meals[j];
+          if (!m || typeof m !== "object") return "食事データの形式が正しくありません (" + i + "件目)";
+          if (!Object.prototype.hasOwnProperty.call(LOG_MEAL_TIME_LABEL, m.time)) return "食事データに不正な食事帯があります (" + i + "件目)";
+          if (typeof m.name !== "string") return "食事データに不正な名前があります (" + i + "件目)";
+          if (typeof m.kcal !== "number" || isNaN(m.kcal)) return "食事データに不正なカロリーがあります (" + i + "件目)";
+          if (m.protein !== undefined && (typeof m.protein !== "number" || isNaN(m.protein))) return "食事データに不正なタンパク質量があります (" + i + "件目)";
+          if (m.id !== undefined && (typeof m.id !== "string" || !SAFE_ID_RE.test(m.id))) return "食事データのIDが不正です (" + i + "件目)";
+        }
+      }
+    }
+    if (data.foods !== undefined) {
+      if (!Array.isArray(data.foods)) return "foodsの形式が正しくありません";
+      for (var k = 0; k < data.foods.length; k++) {
+        var f = data.foods[k];
+        if (!f || typeof f !== "object" || typeof f.name !== "string") return "よく食べるものの形式が正しくありません (" + k + "件目)";
+        if (typeof f.kcal !== "number" || isNaN(f.kcal)) return "よく食べるもののカロリーが不正です (" + k + "件目)";
+        if (f.protein !== undefined && (typeof f.protein !== "number" || isNaN(f.protein))) return "よく食べるもののタンパク質量が不正です (" + k + "件目)";
+        if (f.id !== undefined && (typeof f.id !== "string" || !SAFE_ID_RE.test(f.id))) return "よく食べるもののIDが不正です (" + k + "件目)";
+      }
     }
     if (data.profile !== undefined && data.profile !== null) {
       if (typeof data.profile !== "object" ||
@@ -3014,23 +4045,61 @@
     el.className = "data-status " + (isError ? "err" : "ok");
   }
 
-  function exportData() {
-    var data = { logs: state.logs };
-    if (state.profile) data.profile = state.profile;
-    data.exportedAt = new Date().toISOString();
-    data.appVersion = APP_VERSION;
-    var json = JSON.stringify(data, null, 2);
-    var blob = new Blob([json], { type: "application/json" });
+  // Shared download mechanism: triggers a browser download of `text` as `filename`.
+  function downloadTextFile(text, filename) {
+    var blob = new Blob([text], { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
-    var stamp = todayStr();
     a.href = url;
-    a.download = "diet-tracker-" + stamp + ".json";
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  function exportData() {
+    var data = { schemaVersion: 2, logs: state.logs, foods: state.foods };
+    if (state.profile) data.profile = state.profile;
+    data.exportedAt = new Date().toISOString();
+    data.appVersion = APP_VERSION;
+    var json = JSON.stringify(data, null, 2);
+    downloadTextFile(json, "diet-tracker-" + todayStr() + ".json");
     showDataStatus("エクスポートしました (" + state.logs.length + "件)", false);
+  }
+
+  // Returns the value of the first storageKey (in order) that has something
+  // stored under it, else null. Kept generic/pure so it can be unit-tested
+  // without touching the app's real backup keys.
+  function firstStoredValue(storageKeys) {
+    for (var i = 0; i < storageKeys.length; i++) {
+      var v = localStorage.getItem(storageKeys[i]);
+      if (v) return v;
+    }
+    return null;
+  }
+
+  // Shows/hides & enables/disables a backup-download button based on whether a
+  // backup currently exists under v1Key or corruptKey. Returns whether one exists.
+  // Takes the keys as parameters (rather than reading the module-level constants
+  // directly) so it can be exercised in tests with throwaway probe keys.
+  function configureBackupButton(btn, v1Key, corruptKey) {
+    var hasBackup = !!firstStoredValue([v1Key, corruptKey]);
+    btn.hidden = !hasBackup;
+    btn.disabled = !hasBackup;
+    return hasBackup;
+  }
+
+  // The backup taken by backupOnce (pre-migration v1, or a corrupt payload) is
+  // otherwise write-only: nothing in the app ever reads it back, and on iOS the
+  // owner has no devtools to pull it out of localStorage manually. This gives
+  // them a way to get it off the device via the same download mechanism used
+  // for a normal export (no in-app restore flow, just recovery of the raw JSON).
+  function downloadBackup() {
+    var raw = firstStoredValue([BACKUP_KEY_V1, BACKUP_KEY_CORRUPT]);
+    if (!raw) return;
+    downloadTextFile(raw, "diet-tracker-backup-" + todayStr() + ".json");
+    showDataStatus("バックアップをダウンロードしました", false);
   }
 
   function importDataFromFile(file) {
@@ -3054,20 +4123,10 @@
         showDataStatus("インポートをキャンセルしました", false);
         return;
       }
-      state.logs = parsed.logs.map(function (l) {
-        var entry = { date: l.date, weight: Math.round(l.weight * 10) / 10, trained: !!l.trained };
-        if (typeof l.calories === "number") entry.calories = Math.round(l.calories);
-        if (typeof l.protein === "number") entry.protein = Math.round(l.protein);
-        return entry;
-      });
-      if (parsed.profile) {
-        state.profile = {
-          startWeight: Math.round(parsed.profile.startWeight * 10) / 10,
-          goalWeight: Math.round(parsed.profile.goalWeight * 10) / 10,
-        };
-        if (typeof parsed.profile.targetCalories === "number") state.profile.targetCalories = Math.round(parsed.profile.targetCalories);
-        if (typeof parsed.profile.targetProtein === "number") state.profile.targetProtein = Math.round(parsed.profile.targetProtein);
-      }
+      var incoming = migrateToV2(parsed);
+      state.logs = incoming.logs;
+      state.foods = Array.isArray(incoming.foods) ? incoming.foods : [];
+      if (incoming.profile) state.profile = incoming.profile;
       saveState();
       renderAll();
       syncSettingsInputs();
@@ -3086,6 +4145,9 @@
       fileInput.value = "";
       fileInput.click();
     });
+    var backupBtn = document.getElementById("backupBtn");
+    configureBackupButton(backupBtn, BACKUP_KEY_V1, BACKUP_KEY_CORRUPT);
+    backupBtn.addEventListener("click", downloadBackup);
     fileInput.addEventListener("change", function () {
       var file = fileInput.files && fileInput.files[0];
       importDataFromFile(file);
@@ -3106,9 +4168,15 @@
     else window.addEventListener("load", register);
   }
 
+  if (location.search.indexOf("selftest=1") >= 0) {
+    SELFTEST.run();
+    return;
+  }
+
   loadState();
   setupTabs();
   setupForm();
+  setupMealForm();
   setupSettings();
   setupChartToggle();
   setupRecipeModal();
