@@ -930,6 +930,13 @@
     <h2 class="section-title">食事を追加</h2>
     <div class="panel">
       <div class="food-chips" id="foodChips"></div>
+      <!-- TEMPORARY (Task 2 gate verification only; removed in a later cleanup task).
+           All ids in this block are prefixed scanTemp so cleanup can find them. -->
+      <div id="scanTempPanel" style="margin-bottom:10px;padding:8px;border:1px dashed var(--border2);border-radius:6px;">
+        <button type="button" class="btn" id="scanTempBtn">バーコードスキャン(検証用・一時)</button>
+        <video id="scanTempVideo" autoplay muted playsinline style="width:100%;max-width:320px;margin-top:8px;display:none;"></video>
+        <div class="data-status" id="scanTempOut"></div>
+      </div>
       <form id="mealForm">
         <div class="form-row">
           <div class="field">
@@ -3927,6 +3934,59 @@
     });
   }
 
+  // ---- barcode scanning (Task 2 gate) ----
+  // startBarcodeScan is the permanent interface a later task will build UI on top of.
+  // setupScanTemp and the scanTemp* elements it wires up are throwaway verification
+  // UI for this gate task only; a later cleanup task removes them.
+  var scanReader = null;
+  function startBarcodeScan(videoEl, onResult, onError) {
+    var stopped = false;
+    function stop() {
+      stopped = true;
+      if (scanReader) { try { scanReader.reset(); } catch (e) {} scanReader = null; }
+    }
+    if (typeof ZXing === "undefined" || !ZXing.BrowserMultiFormatReader) {
+      onError("library");
+      return stop;
+    }
+    scanReader = new ZXing.BrowserMultiFormatReader();
+    scanReader.decodeFromVideoDevice(null, videoEl, function (result, err) {
+      if (stopped) return;
+      if (result) { stop(); onResult(result.getText()); return; }
+      // err comes on every frame while nothing is found yet, so filter by type
+      if (err && err.name && err.name !== "NotFoundException") { stop(); onError(err.name); }
+    })["catch"](function (e) {
+      stop();
+      onError(e && e.name === "NotAllowedError" ? "denied" : "camera");
+    });
+    return stop;
+  }
+
+  function setupScanTemp() {
+    var btn = document.getElementById("scanTempBtn");
+    var video = document.getElementById("scanTempVideo");
+    var out = document.getElementById("scanTempOut");
+    if (!btn || !video || !out) return;
+    var stopScan = null;
+    function reset(label) {
+      if (label) out.textContent = label;
+      btn.textContent = "バーコードスキャン(検証用・一時)";
+      video.style.display = "none";
+      stopScan = null;
+    }
+    btn.addEventListener("click", function () {
+      if (stopScan) { stopScan(); reset("停止しました"); return; }
+      out.textContent = "起動中...";
+      video.style.display = "block";
+      btn.textContent = "停止(検証用・一時)";
+      stopScan = startBarcodeScan(video, function (text) {
+        reset("読み取り結果: " + text);
+      }, function (errName) {
+        reset("エラー: " + errName);
+      });
+    });
+  }
+
   function setupMealForm() {
     var form = document.getElementById("mealForm");
     var dateInput = document.getElementById("m-date");
@@ -4178,6 +4238,7 @@
   setupTabs();
   setupForm();
   setupMealForm();
+  setupScanTemp();
   setupSettings();
   setupChartToggle();
   setupRecipeModal();
