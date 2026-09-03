@@ -1756,6 +1756,69 @@
     T.eq(isNotFoundError(null), false, "null is not treated as not-found");
   });
 
+  var OFF_FIXTURE_NAGEWA = { status: 1, product: {
+    product_name: "nagewa Uma shio aji", product_name_ja: "やげわ うま塩味",
+    quantity: "67g", product_quantity: 67, serving_size: "67 g", serving_quantity: 67,
+    nutriments: { "energy-kcal_100g": 547.761194029851, proteins_100g: 2.53731343283582 } } };
+  var OFF_FIXTURE_POCKY = { status: 1, product: {
+    product_name: "Pocky chocolate", product_name_ja: "Pocky chocolate",
+    quantity: null, product_quantity: null, serving_size: "29 g", serving_quantity: 29,
+    nutriments: { "energy-kcal_100g": 489.655172413793, proteins_100g: 8.96551724137931 } } };
+  var OFF_FIXTURE_TEA = { status: 1, product: {
+    product_name: "Gogo no kocha Straight Tea", product_name_ja: null,
+    quantity: "500 ml", product_quantity: 500, serving_size: null, serving_quantity: null,
+    nutriments: { "energy-kcal_100g": 15, proteins_100g: 0 } } };
+
+  SELFTEST.add("parseOffProduct prefers serving quantity as the default portion", function () {
+    var p = parseOffProduct(OFF_FIXTURE_NAGEWA, "4901940200641");
+    T.eq(p.defaultQty, 67, "serving_quantity wins");
+    T.eq(p.unit, "g", "unit from quantity string");
+    T.eq(p.name, "やげわ うま塩味", "japanese name preferred");
+    T.eq(p.productUrl, "https://world.openfoodfacts.org/product/4901940200641", "product url");
+  });
+
+  SELFTEST.add("parseOffProduct falls back to package quantity, and detects ml", function () {
+    var p = parseOffProduct(OFF_FIXTURE_TEA, "4909411076610");
+    T.eq(p.defaultQty, 500, "product_quantity used when no serving");
+    T.eq(p.unit, "ml", "ml detected from '500 ml'");
+    T.eq(p.name, "Gogo no kocha Straight Tea", "falls back to product_name");
+  });
+
+  SELFTEST.add("parseOffProduct handles a missing package quantity", function () {
+    var p = parseOffProduct(OFF_FIXTURE_POCKY, "4901005009158");
+    T.eq(p.defaultQty, 29, "serving_quantity still wins");
+    T.eq(p.unit, "g", "defaults to g when no quantity string");
+  });
+
+  SELFTEST.add("parseOffProduct never fabricates missing nutrients", function () {
+    var bare = { status: 1, product: { product_name: "X", nutriments: {} } };
+    var p = parseOffProduct(bare, "111");
+    T.eq(p.kcalPer100, undefined, "no kcal invented");
+    T.eq(p.proteinPer100, undefined, "no protein invented");
+    T.eq(p.defaultQty, undefined, "no quantity invented");
+    T.eq(p.name, "X", "name still read");
+  });
+
+  SELFTEST.add("parseOffProduct returns null for a product that is not listed", function () {
+    T.eq(parseOffProduct({ status: 0 }, "111"), null, "status 0");
+    T.eq(parseOffProduct(null, "111"), null, "null payload");
+    T.eq(parseOffProduct({}, "111"), null, "empty payload");
+  });
+
+  SELFTEST.add("parseOffProduct falls back to the barcode when there is no name", function () {
+    var p = parseOffProduct({ status: 1, product: { nutriments: {} } }, "4901005009158");
+    T.eq(p.name, "4901005009158", "barcode used as the name");
+  });
+
+  SELFTEST.add("computeFromPer100 scales and rounds", function () {
+    T.eq(computeFromPer100(547.761194029851, 67), 367, "matches OFF's own serving value");
+    T.eq(computeFromPer100(15, 500), 75, "whole bottle");
+    T.eq(computeFromPer100(489.655172413793, 29), 142, "matches OFF's own serving value");
+    T.eq(computeFromPer100(undefined, 67), undefined, "missing per-100 stays missing");
+    T.eq(computeFromPer100(100, 0), 0, "zero quantity is a real zero");
+    T.eq(computeFromPer100(100, undefined), undefined, "missing quantity stays missing");
+  });
+
   var PROFILE = {
     heightCm: 176,
     startWeight: 90,
@@ -4033,6 +4096,34 @@
   // startBarcodeScan is the permanent interface a later task will build UI on top of.
   // setupScanTemp and the scanTemp* elements it wires up are throwaway verification
   // UI for this gate task only; a later cleanup task removes them.
+
+  function offUnitOf(quantityStr) {
+    if (typeof quantityStr === "string" && /ml/i.test(quantityStr)) return "ml";
+    return "g";
+  }
+
+  function parseOffProduct(json, jan) {
+    if (!json || json.status !== 1 || !json.product) return null;
+    var p = json.product;
+    var n = p.nutriments || {};
+    var out = {
+      name: (typeof p.product_name_ja === "string" && p.product_name_ja) ||
+            (typeof p.product_name === "string" && p.product_name) || String(jan),
+      unit: offUnitOf(p.quantity),
+      productUrl: "https://world.openfoodfacts.org/product/" + encodeURIComponent(jan)
+    };
+    if (typeof n["energy-kcal_100g"] === "number") out.kcalPer100 = n["energy-kcal_100g"];
+    if (typeof n.proteins_100g === "number") out.proteinPer100 = n.proteins_100g;
+    if (typeof p.serving_quantity === "number") out.defaultQty = p.serving_quantity;
+    else if (typeof p.product_quantity === "number") out.defaultQty = p.product_quantity;
+    return out;
+  }
+
+  function computeFromPer100(per100, qty) {
+    if (typeof per100 !== "number" || isNaN(per100)) return undefined;
+    if (typeof qty !== "number" || isNaN(qty)) return undefined;
+    return Math.round(per100 * qty / 100);
+  }
 
   // The brief's own snippet checked err.name !== "NotFoundException", but in this
   // minified UMD bundle err.name is a mangled single letter (e.g. "N" for
