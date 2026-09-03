@@ -376,6 +376,41 @@
   .data-status.ok{ color:var(--cyan); }
   .data-status.err{ color:var(--red); }
 
+  /* ---- scan confirm ---- */
+  .per100-readout{
+    font-size:12px;
+    color:var(--muted);
+    font-family:var(--mono);
+  }
+  .field-override{
+    display:flex;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:8px;
+    font-size:11px;
+    color:var(--muted);
+  }
+  .field-override button{
+    background:none;
+    border:none;
+    color:var(--cyan);
+    font-size:11px;
+    font-weight:600;
+    cursor:pointer;
+    padding:0;
+    text-decoration:underline;
+  }
+  .off-attribution{
+    font-size:11px;
+    color:var(--muted);
+    line-height:1.6;
+    padding:8px 10px;
+    border:1px solid var(--border2);
+    border-radius:8px;
+    background:#0E141A;
+  }
+  .off-attribution a{ color:var(--cyan); }
+
   /* ---- history ---- */
   .history-list{
     display:flex;
@@ -937,6 +972,57 @@
         <video id="scanTempVideo" autoplay muted playsinline style="width:100%;max-width:320px;margin-top:8px;display:none;"></video>
         <div class="data-status" id="scanTempOut"></div>
       </div>
+
+      <!-- Scan confirm screen (Task 5): the only path that turns a scanned
+           product's per-100g values into a logged meal. Hidden until
+           openScanConfirm() is called with a looked-up product. -->
+      <div class="panel" id="scanConfirmPanel" hidden style="margin-bottom:10px;">
+        <div class="form-row">
+          <div class="field">
+            <label for="sc-name">商品名(編集可)</label>
+            <input type="text" id="sc-name" placeholder="商品名">
+          </div>
+          <div class="per100-readout" id="sc-per100"></div>
+          <div class="field">
+            <label for="sc-qty">分量 (<span id="sc-unit">g</span>)</label>
+            <input type="number" id="sc-qty" min="0" step="1" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="sc-kcal">カロリー (kcal・分量から自動計算、手入力で上書き可)</label>
+            <input type="number" id="sc-kcal" min="0" step="1" inputmode="numeric">
+            <div class="field-override" id="sc-kcal-overridden" hidden>
+              <span>手入力した値です(分量を変えても自動更新されません)</span>
+              <button type="button" id="sc-kcal-reset">自動計算に戻す</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="sc-protein">タンパク質 (g・任意・分量から自動計算、手入力で上書き可)</label>
+            <input type="number" id="sc-protein" min="0" step="1" inputmode="numeric" placeholder="g">
+            <div class="field-override" id="sc-protein-overridden" hidden>
+              <span>手入力した値です(分量を変えても自動更新されません)</span>
+              <button type="button" id="sc-protein-reset">自動計算に戻す</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="sc-time">食事帯</label>
+            <select id="sc-time">
+              <option value="breakfast">朝食</option>
+              <option value="lunch">昼食</option>
+              <option value="dinner">夕食</option>
+              <option value="snack">間食</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sc-date">日付</label>
+            <input type="date" id="sc-date">
+          </div>
+          <div id="sc-attribution"></div>
+          <button type="button" class="btn full" id="sc-confirm-btn">記録に追加</button>
+          <button type="button" class="btn secondary full" id="sc-cancel-btn">やめる</button>
+          <div class="data-status" id="sc-status"></div>
+        </div>
+      </div>
+
       <form id="mealForm">
         <div class="form-row">
           <div class="field">
@@ -1927,6 +2013,159 @@
       T.eq(r.ok, false, "not ok");
       T.eq(r.reason, "network", "malformed JSON maps to network, not left unresolved or thrown");
     });
+  });
+
+  function scanConfirmTestProduct() {
+    return { name: "テスト商品", unit: "g", kcalPer100: 200, proteinPer100: 10, productUrl: "https://world.openfoodfacts.org/product/1" };
+  }
+
+  SELFTEST.add("renderScanConfirm recomputes kcal/protein from the portion when neither field is overridden", function () {
+    var saved = scanState;
+    scanState = { product: scanConfirmTestProduct(), jan: "1", kcalOverridden: false, proteinOverridden: false };
+    document.getElementById("sc-qty").value = "150";
+    renderScanConfirm();
+    T.eq(document.getElementById("sc-kcal").value, "300", "150g of 200kcal/100g");
+    T.eq(document.getElementById("sc-protein").value, "15", "150g of 10g/100g protein");
+
+    document.getElementById("sc-qty").value = "50";
+    renderScanConfirm();
+    T.eq(document.getElementById("sc-kcal").value, "100", "kcal recomputes when the portion changes");
+    T.eq(document.getElementById("sc-protein").value, "5", "protein recomputes when the portion changes");
+    scanState = saved;
+  });
+
+  // Under ?selftest=1 the app's own init short-circuits before setupScanConfirm()
+  // ever runs (see the `if (...selftest...) { SELFTEST.run(); return; }` guard near
+  // the bottom of the file), so sc-kcal/sc-protein/sc-kcal-reset have no listeners
+  // yet at this point in a real run. This test attaches the exact same listeners
+  // setupScanConfirm() would, so it exercises the real wiring (not just the
+  // renderScanConfirm state machine) without needing to run the whole app.
+  SELFTEST.add("overriding kcal freezes it against portion changes without freezing protein, and the reset button un-freezes it", function () {
+    var saved = scanState;
+    scanState = { product: scanConfirmTestProduct(), jan: "1", kcalOverridden: false, proteinOverridden: false };
+    document.getElementById("sc-qty").value = "100";
+    renderScanConfirm();
+    T.eq(document.getElementById("sc-kcal").value, "200", "sanity: initial computed kcal");
+
+    var kcalInput = document.getElementById("sc-kcal");
+    kcalInput.addEventListener("input", function () {
+      if (!scanState) return;
+      scanState.kcalOverridden = true;
+      renderScanConfirm();
+    });
+    var resetBtn = document.getElementById("sc-kcal-reset");
+    resetBtn.addEventListener("click", function () {
+      if (!scanState) return;
+      scanState.kcalOverridden = false;
+      renderScanConfirm();
+    });
+
+    // The user types over the kcal field by hand.
+    kcalInput.value = "999";
+    kcalInput.dispatchEvent(new Event("input", { bubbles: true }));
+    T.eq(scanState.kcalOverridden, true, "kcal input listener sets the override flag");
+    T.eq(scanState.proteinOverridden, false, "protein's flag is untouched by editing kcal");
+    T.eq(document.getElementById("sc-kcal-overridden").hidden, false, "override indicator shown for kcal");
+    T.eq(document.getElementById("sc-protein-overridden").hidden, true, "override indicator stays hidden for protein");
+
+    // Changing the portion must not silently overwrite the overridden value.
+    document.getElementById("sc-qty").value = "50";
+    renderScanConfirm();
+    T.eq(document.getElementById("sc-kcal").value, "999", "overridden kcal survives a portion change");
+    T.eq(document.getElementById("sc-protein").value, "5", "protein (not overridden) still recomputes: 50g of 10g/100g");
+
+    // The reset control clears the override and recomputes immediately.
+    resetBtn.click();
+    T.eq(scanState.kcalOverridden, false, "reset clears the override flag");
+    T.eq(document.getElementById("sc-kcal").value, "100", "kcal recomputed from the current portion: 50g of 200kcal/100g");
+    T.eq(document.getElementById("sc-kcal-overridden").hidden, true, "override indicator hides again after reset");
+    scanState = saved;
+  });
+
+  SELFTEST.add("overriding protein does not freeze kcal, and kcal keeps recomputing while protein stays overridden", function () {
+    var saved = scanState;
+    scanState = { product: scanConfirmTestProduct(), jan: "1", kcalOverridden: false, proteinOverridden: false };
+    document.getElementById("sc-qty").value = "100";
+    renderScanConfirm();
+
+    var proteinInput = document.getElementById("sc-protein");
+    proteinInput.addEventListener("input", function () {
+      if (!scanState) return;
+      scanState.proteinOverridden = true;
+      renderScanConfirm();
+    });
+    proteinInput.value = "77";
+    proteinInput.dispatchEvent(new Event("input", { bubbles: true }));
+    T.eq(scanState.proteinOverridden, true, "protein input listener sets its own override flag");
+    T.eq(scanState.kcalOverridden, false, "kcal's flag is untouched by editing protein (independence, other direction)");
+
+    document.getElementById("sc-qty").value = "200";
+    renderScanConfirm();
+    T.eq(document.getElementById("sc-kcal").value, "400", "kcal keeps recomputing even though protein is overridden: 200g of 200kcal/100g");
+    T.eq(document.getElementById("sc-protein").value, "77", "overridden protein is left alone by the portion change");
+    scanState = saved;
+  });
+
+  SELFTEST.add("openScanConfirm populates the form from a fresh product, and renders ODbL attribution with an escaped product URL", function () {
+    var saved = scanState;
+    var product = {
+      name: "危険< 商品",
+      unit: "ml",
+      kcalPer100: 250,
+      proteinPer100: 5,
+      defaultQty: 330,
+      productUrl: "https://world.openfoodfacts.org/product/111\"><b>x</b>"
+    };
+    openScanConfirm(product, "111");
+    T.eq(scanState.kcalOverridden, false, "fresh state starts un-overridden (kcal)");
+    T.eq(scanState.proteinOverridden, false, "fresh state starts un-overridden (protein)");
+    T.eq(document.getElementById("sc-name").value, product.name, "product name populated into an editable field");
+    T.eq(document.getElementById("sc-unit").textContent, "ml", "unit label shown");
+    T.eq(document.getElementById("sc-qty").value, "330", "default portion taken from the product");
+    T.eq(document.getElementById("sc-kcal").value, "825", "kcal computed from the default portion: 250 * 330 / 100");
+    T.eq(document.getElementById("scanConfirmPanel").hidden, false, "panel opened");
+    var attribution = document.getElementById("sc-attribution").innerHTML;
+    T.ok(attribution.indexOf("Open Food Facts") >= 0, "names the data source, not just a company name");
+    T.ok(attribution.indexOf("opendatacommons.org/licenses/odbl") >= 0, "links the ODbL licence");
+    T.ok(attribution.indexOf("バーコードは") >= 0 && attribution.indexOf("送信されます") >= 0, "discloses that the scanned barcode is sent off-device");
+    T.ok(attribution.indexOf("<b>") === -1, "product URL is escaped before being interpolated into markup");
+    closeScanConfirm();
+    scanState = saved;
+  });
+
+  SELFTEST.add("closeScanConfirm hides the panel and clears scan state", function () {
+    var saved = scanState;
+    openScanConfirm(scanConfirmTestProduct(), "1");
+    closeScanConfirm();
+    T.eq(scanState, null, "state cleared so a stray recompute is a no-op");
+    T.eq(document.getElementById("scanConfirmPanel").hidden, true, "panel hidden");
+    scanState = saved;
+  });
+
+  SELFTEST.add("submitScanConfirm rejects an empty name and a non-numeric kcal, and never calls addMeal for either", function () {
+    var saved = scanState;
+    var realAddMeal = addMeal;
+    var addMealCalled = false;
+    addMeal = function () { addMealCalled = true; return "should-not-happen"; };
+    try {
+      scanState = { product: scanConfirmTestProduct(), jan: "1", kcalOverridden: false, proteinOverridden: false };
+      var status = document.getElementById("sc-status");
+
+      document.getElementById("sc-name").value = "";
+      document.getElementById("sc-kcal").value = "50";
+      submitScanConfirm();
+      T.ok(status.className.indexOf("err") >= 0, "empty name is rejected");
+      T.ok(scanState !== null, "panel stays open on validation failure");
+
+      document.getElementById("sc-name").value = "テスト商品";
+      document.getElementById("sc-kcal").value = "abc";
+      submitScanConfirm();
+      T.ok(status.className.indexOf("err") >= 0, "non-numeric kcal is rejected");
+      T.eq(addMealCalled, false, "addMeal is never reached while validation fails");
+    } finally {
+      addMeal = realAddMeal;
+      scanState = saved;
+    }
   });
 
   var PROFILE = {
@@ -4313,6 +4552,134 @@
     return stop;
   }
 
+  // ---- scan confirm (Task 5) ----
+  // The only path that turns a scanned product's per-100g values into a
+  // logged meal. Open Food Facts reports kcal/protein per 100g, not per
+  // package, so a snack at 547.8 kcal/100g is a 67g bag = 367 kcal; this
+  // screen is what does that conversion, and there must be no shortcut that
+  // logs straight from the per-100g values without going through the
+  // portion field.
+  //
+  // Override state lives on the module-level scanState object created by
+  // openScanConfirm: { product, jan, kcalOverridden, proteinOverridden }.
+  // kcal and protein each get their own boolean flag so overriding one never
+  // affects the other. While a field's flag is set, renderScanConfirm()
+  // leaves that field's <input> alone on every recompute (portion change);
+  // the field's own "自動計算に戻す" button clears the flag and immediately
+  // recomputes it from the current portion.
+  var scanState = null;
+
+  function scanConfirmAttributionHtml(product) {
+    return '<div class="off-attribution">' +
+      'この栄養情報は <a href="' + escapeHtml(product.productUrl) + '" target="_blank" rel="noopener">Open Food Facts</a> ' +
+      'のデータベース由来で、<a href="https://opendatacommons.org/licenses/odbl/" target="_blank" rel="noopener">Open Database License (ODbL)</a> ' +
+      'の下で提供されています。読み取ったバーコードは Open Food Facts に送信されます。' +
+      '</div>';
+  }
+
+  function scanConfirmPer100Text(product) {
+    var kcalText = typeof product.kcalPer100 === "number" ? (Math.round(product.kcalPer100 * 10) / 10) + " kcal" : "不明";
+    var proteinText = typeof product.proteinPer100 === "number" ? "P " + (Math.round(product.proteinPer100 * 10) / 10) + "g" : "P 不明";
+    return "100gあたり: " + kcalText + " / " + proteinText;
+  }
+
+  // openScanConfirm(product, jan) - opens the confirm screen for a looked-up
+  // product (the shape returned by parseOffProduct/fetchOffProduct).
+  function openScanConfirm(product, jan) {
+    scanState = { product: product, jan: jan, kcalOverridden: false, proteinOverridden: false };
+    document.getElementById("sc-name").value = product.name;
+    document.getElementById("sc-per100").textContent = scanConfirmPer100Text(product);
+    document.getElementById("sc-unit").textContent = product.unit;
+    document.getElementById("sc-qty").value = typeof product.defaultQty === "number" ? product.defaultQty : "";
+    document.getElementById("sc-time").value = defaultMealTime(new Date());
+    document.getElementById("sc-date").value = todayStr();
+    document.getElementById("sc-attribution").innerHTML = scanConfirmAttributionHtml(product);
+    var status = document.getElementById("sc-status");
+    status.textContent = "";
+    status.className = "data-status";
+    renderScanConfirm();
+    document.getElementById("scanConfirmPanel").hidden = false;
+  }
+
+  // renderScanConfirm() - recomputes kcal/protein from the current portion
+  // for whichever of the two fields is not overridden, and syncs the
+  // per-field "overridden" indicators. Safe to call any time scanState is
+  // set (portion change, override toggled, reset button, initial open).
+  function renderScanConfirm() {
+    if (!scanState) return;
+    var qty = parseFloat(document.getElementById("sc-qty").value);
+    if (!scanState.kcalOverridden) {
+      var k = computeFromPer100(scanState.product.kcalPer100, qty);
+      document.getElementById("sc-kcal").value = (k === undefined ? "" : k);
+    }
+    if (!scanState.proteinOverridden) {
+      var p = computeFromPer100(scanState.product.proteinPer100, qty);
+      document.getElementById("sc-protein").value = (p === undefined ? "" : p);
+    }
+    document.getElementById("sc-kcal-overridden").hidden = !scanState.kcalOverridden;
+    document.getElementById("sc-protein-overridden").hidden = !scanState.proteinOverridden;
+  }
+
+  function closeScanConfirm() {
+    scanState = null;
+    document.getElementById("scanConfirmPanel").hidden = true;
+  }
+
+  // submitScanConfirm() - validates and logs the confirmed meal. Mirrors the
+  // manual meal form's inline validation/status pattern; never fabricates a
+  // protein value (empty field -> undefined, not 0).
+  function submitScanConfirm() {
+    if (!scanState) return;
+    var status = document.getElementById("sc-status");
+    var name = document.getElementById("sc-name").value.trim();
+    var kcal = parseFloat(document.getElementById("sc-kcal").value);
+    var proteinRaw = document.getElementById("sc-protein").value;
+    var protein = proteinRaw === "" ? undefined : parseFloat(proteinRaw);
+
+    if (!name) { status.textContent = "商品名を入力してください"; status.className = "data-status err"; return; }
+    if (isNaN(kcal) || kcal < 0) { status.textContent = "カロリーを正しく入力してください"; status.className = "data-status err"; return; }
+    if (protein !== undefined && (isNaN(protein) || protein < 0)) { status.textContent = "タンパク質を正しく入力してください"; status.className = "data-status err"; return; }
+
+    var date = document.getElementById("sc-date").value || todayStr();
+    var time = document.getElementById("sc-time").value;
+    addMeal(date, time, name, kcal, protein, "barcode");
+    upsertFood(name, kcal, protein);
+    renderAll();
+    closeScanConfirm();
+  }
+
+  function setupScanConfirm() {
+    document.getElementById("sc-qty").addEventListener("input", function () {
+      renderScanConfirm();
+    });
+    document.getElementById("sc-kcal").addEventListener("input", function () {
+      if (!scanState) return;
+      scanState.kcalOverridden = true;
+      renderScanConfirm();
+    });
+    document.getElementById("sc-protein").addEventListener("input", function () {
+      if (!scanState) return;
+      scanState.proteinOverridden = true;
+      renderScanConfirm();
+    });
+    document.getElementById("sc-kcal-reset").addEventListener("click", function () {
+      if (!scanState) return;
+      scanState.kcalOverridden = false;
+      renderScanConfirm();
+    });
+    document.getElementById("sc-protein-reset").addEventListener("click", function () {
+      if (!scanState) return;
+      scanState.proteinOverridden = false;
+      renderScanConfirm();
+    });
+    document.getElementById("sc-confirm-btn").addEventListener("click", function () {
+      submitScanConfirm();
+    });
+    document.getElementById("sc-cancel-btn").addEventListener("click", function () {
+      closeScanConfirm();
+    });
+  }
+
   function setupScanTemp() {
     var btn = document.getElementById("scanTempBtn");
     var video = document.getElementById("scanTempVideo");
@@ -4589,6 +4956,7 @@
   setupTabs();
   setupForm();
   setupMealForm();
+  setupScanConfirm();
   setupScanTemp();
   setupSettings();
   setupChartToggle();
