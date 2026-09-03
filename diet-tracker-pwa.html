@@ -1110,22 +1110,52 @@
   var SELFTEST = {
     cases: [],
     add: function (name, fn) { SELFTEST.cases.push({ name: name, fn: fn }); },
+    // Cases are normally synchronous (fn() runs and either returns or throws).
+    // A case may instead return a promise (e.g. a real decodeFromImageUrl call) -
+    // run() awaits it before moving to the next case, and the summary is only
+    // rendered once every case, sync or async, has settled. run() itself always
+    // returns a promise; callers that only care about the DOM/title being
+    // finished (as opposed to reading run()'s own resolved value) can ignore it.
     run: function () {
       var passed = 0, failed = 0, rows = "";
-      SELFTEST.cases.forEach(function (c) {
-        var ok = true, err = "";
-        try { c.fn(); } catch (e) { ok = false; err = e.message; }
+      function record(name, ok, err) {
         if (ok) { passed++; } else { failed++; }
         rows += '<div style="padding:6px 10px;border-bottom:1px solid #333;color:' +
-          (ok ? "#7ddb7d" : "#ff6b6b") + '">' + (ok ? "PASS" : "FAIL") + " — " + c.name +
+          (ok ? "#7ddb7d" : "#ff6b6b") + '">' + (ok ? "PASS" : "FAIL") + " — " + name +
           (ok ? "" : '<div style="color:#ffb4b4;font-size:12px;margin-top:4px">' + err + "</div>") + "</div>";
-      });
-      document.body.innerHTML =
-        '<div style="font-family:monospace;background:#111;color:#eee;min-height:100vh;padding:16px">' +
-        '<h1 style="font-size:18px">selftest: ' + passed + " passed, " + failed + " failed</h1>" +
-        rows + "</div>";
-      document.title = (failed === 0 ? "PASS" : "FAIL") + " selftest (" + passed + "/" + (passed + failed) + ")";
-      return failed === 0;
+      }
+      function finish() {
+        document.body.innerHTML =
+          '<div style="font-family:monospace;background:#111;color:#eee;min-height:100vh;padding:16px">' +
+          '<h1 style="font-size:18px">selftest: ' + passed + " passed, " + failed + " failed</h1>" +
+          rows + "</div>";
+        document.title = (failed === 0 ? "PASS" : "FAIL") + " selftest (" + passed + "/" + (passed + failed) + ")";
+        return failed === 0;
+      }
+      var i = 0;
+      function next() {
+        if (i >= SELFTEST.cases.length) return Promise.resolve(finish());
+        var c = SELFTEST.cases[i++];
+        var result;
+        try {
+          result = c.fn();
+        } catch (e) {
+          record(c.name, false, e.message);
+          return next();
+        }
+        if (result && typeof result.then === "function") {
+          return result.then(function () {
+            record(c.name, true, "");
+            return next();
+          }, function (e) {
+            record(c.name, false, (e && e.message) || String(e));
+            return next();
+          });
+        }
+        record(c.name, true, "");
+        return next();
+      }
+      return next();
     }
   };
 
@@ -1659,6 +1689,31 @@
     T.eq(metricLogs("protein")[0].protein, 40, "protein derived");
     T.eq(metricLogs("weight").length, 2, "weight series unchanged");
     state.logs = saved;
+  });
+
+  // Test fixture: a 357x192 1-bit PNG rendering of a valid EAN-13 barcode for
+  // "4901005009158", generated outside the browser (this vendored ZXing 0.23.0
+  // UMD build has no 1-D writer - only AztecCodeWriter/DataMatrixWriter/QRCodeWriter
+  // are compiled in, so it cannot encode EAN_13 itself - see Task 2 report). This
+  // is a test-only fixture; it is not used by the app's own scanning code.
+  var SCAN_FIXTURE_EAN13_PNG =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAWUAAADAAQAAAAD0WE//AAAAdElEQVR42u3ZsQ2CQBiG4TtC4RKX3Bp0rgQLKC6gK9E5CBPQ" +
+    "/cVFV4DChJjnrZ/qa7/8SfuLLh2Jpk+ht3cbh9ZFfUWZop+vZVrqM7fxUh9RbnndUrlbkKZpmqZpmqZpmqZpmqZpmqZpmqbp3+rsn6f/WH8BZ4gW3840" +
+    "R3EAAAAASUVORK5CYII=";
+
+  // Genuinely async: decodeFromImageUrl returns a promise, so this case returns
+  // one too. SELFTEST.run() awaits it (see the harness above) before rendering
+  // the summary - a synchronous assertion here would pass vacuously without
+  // ever having decoded anything.
+  SELFTEST.add("ZXing decodes a real EAN-13 image (bundled decoder proven against a real barcode, not just a synthetic round trip)", function () {
+    if (typeof ZXing === "undefined" || !ZXing.BrowserMultiFormatReader) {
+      throw new Error("ZXing not loaded");
+    }
+    var reader = new ZXing.BrowserMultiFormatReader();
+    return reader.decodeFromImageUrl(SCAN_FIXTURE_EAN13_PNG).then(function (result) {
+      T.eq(result.getText(), "4901005009158", "decoded EAN-13 payload");
+      T.eq(result.getBarcodeFormat(), ZXing.BarcodeFormat.EAN_13, "decoded as EAN_13, not misread as another format");
+    });
   });
 
   var PROFILE = {
