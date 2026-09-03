@@ -1,9 +1,10 @@
 // Minimal offline-cache service worker for Diet Tracker.
 // Bump CACHE_NAME whenever any cached file changes so old caches get replaced.
-var CACHE_NAME = "diet-tracker-cache-v7";
+var CACHE_NAME = "diet-tracker-cache-v8";
 var PRECACHE_URLS = [
   "./",
   "./manifest.json",
+  "./vendor/zxing-0.23.0.umd.min.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",
