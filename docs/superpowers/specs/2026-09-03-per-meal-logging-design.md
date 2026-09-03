@@ -47,7 +47,8 @@
 ```
 
 - `time`: `"breakfast" | "lunch" | "dinner" | "snack" | "other"`
-- `source`: `"recipe" | "manual" | "food" | "migrated"`（由来の記録。表示には使わないが移行分の識別に使う）
+- `source`: `"recipe" | "manual" | "food" | "migrated" | "barcode"`（`barcode` は 2026-09-03 の
+  バーコード読み取り設計で追加 → `2026-09-03-barcode-lookup-design.md`）（由来の記録。表示には使わないが移行分の識別に使う）
 - `protein` は任意（不明な食事があるため）。合計時は未指定を 0 として扱うが、値を捏造して保存しない。
 - `weight` が**任意になる**のが v1 からの最大の差分。
 - `id` は `"m_" + Date.now() + "_" + カウンタ`（`foods` は `"f_"` 接頭辞）で生成する。同一ミリ秒での
