@@ -1819,6 +1819,116 @@
     T.eq(computeFromPer100(100, undefined), undefined, "missing quantity stays missing");
   });
 
+  // Helpers for the fetchOffProduct tests below. Each stub is installed on
+  // window.fetch and restored synchronously right after fetchOffProduct(jan)
+  // is invoked - fetch() is called synchronously inside fetchOffProduct, so
+  // by the time fetchOffProduct() returns, the stub has already done its one
+  // job (capture the URL, hand back a response promise). Restoring
+  // window.fetch immediately, before any assertion runs, means a failing
+  // T.eq/T.ok later in the test can never leave window.fetch pointed at a
+  // stub - there is no assertion in between that could throw and skip it.
+  function offFetchStubOk(calls, status, body) {
+    return function (url) {
+      calls.push(url);
+      return Promise.resolve({
+        status: status, ok: status >= 200 && status < 300,
+        json: function () { return Promise.resolve(body); }
+      });
+    };
+  }
+  function offFetchStubBadJson(calls, status) {
+    return function (url) {
+      calls.push(url);
+      return Promise.resolve({
+        status: status, ok: status >= 200 && status < 300,
+        json: function () { return Promise.reject(new Error("malformed json")); }
+      });
+    };
+  }
+  function offFetchStubReject(calls) {
+    return function (url) {
+      calls.push(url);
+      return Promise.reject(new Error("offline"));
+    };
+  }
+
+  SELFTEST.add("fetchOffProduct resolves {ok:true, product} for a real product, with a well-formed request URL", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    window.fetch = offFetchStubOk(calls, 200, OFF_FIXTURE_NAGEWA);
+    var p = fetchOffProduct("4901940200641");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, true, "ok true for a real product");
+      T.eq(r.product.name, "やげわ うま塩味", "product mapped via parseOffProduct");
+      T.eq(r.product.defaultQty, 67, "defaultQty passed through");
+      T.eq(r.product.kcalPer100, 547.761194029851, "kcalPer100 passed through");
+      T.ok(calls[0].indexOf("/api/v2/product/4901940200641.json") >= 0, "barcode in path");
+      T.ok(calls[0].indexOf("app_name=diet-tracker") >= 0, "app_name is sent");
+      T.ok(calls[0].indexOf("fields=" + OFF_FIELDS) >= 0, "full fields list is sent");
+    });
+  });
+
+  SELFTEST.add("fetchOffProduct maps HTTP 200 with status:0 (not listed) to reason notfound", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    window.fetch = offFetchStubOk(calls, 200, { status: 0 });
+    var p = fetchOffProduct("0000000000000");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, false, "not ok");
+      T.eq(r.reason, "notfound", "status:0 payload maps to notfound");
+    });
+  });
+
+  SELFTEST.add("fetchOffProduct maps HTTP 429 to reason ratelimit", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    window.fetch = offFetchStubOk(calls, 429, {});
+    var p = fetchOffProduct("111");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, false, "not ok");
+      T.eq(r.reason, "ratelimit", "429 maps to ratelimit");
+    });
+  });
+
+  SELFTEST.add("fetchOffProduct maps other non-OK HTTP status to reason network", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    window.fetch = offFetchStubOk(calls, 500, {});
+    var p = fetchOffProduct("111");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, false, "not ok");
+      T.eq(r.reason, "network", "500 maps to network");
+    });
+  });
+
+  SELFTEST.add("fetchOffProduct maps a rejecting fetch (offline) to reason network", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    window.fetch = offFetchStubReject(calls);
+    var p = fetchOffProduct("111");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, false, "not ok");
+      T.eq(r.reason, "network", "offline fetch rejection maps to network");
+    });
+  });
+
+  SELFTEST.add("fetchOffProduct maps malformed JSON (json() rejecting) to reason network without throwing", function () {
+    var realFetch = window.fetch;
+    var calls = [];
+    window.fetch = offFetchStubBadJson(calls, 200);
+    var p = fetchOffProduct("111");
+    window.fetch = realFetch;
+    return p.then(function (r) {
+      T.eq(r.ok, false, "not ok");
+      T.eq(r.reason, "network", "malformed JSON maps to network, not left unresolved or thrown");
+    });
+  });
+
   var PROFILE = {
     heightCm: 176,
     startWeight: 90,
@@ -4123,6 +4233,36 @@
     if (typeof per100 !== "number" || isNaN(per100)) return undefined;
     if (typeof qty !== "number" || isNaN(qty)) return undefined;
     return Math.round(per100 * qty / 100);
+  }
+
+  // Identification to the OFF API goes through app_name/app_version query
+  // params, not a User-Agent header - browser fetch() refuses to let script
+  // set User-Agent (it's on the forbidden header list), so there is no way to
+  // satisfy that requirement from here.
+  var OFF_FIELDS = "product_name,product_name_ja,quantity,product_quantity,serving_size,serving_quantity,nutriments";
+  function offProductUrl(jan) {
+    return "https://world.openfoodfacts.org/api/v2/product/" + encodeURIComponent(jan) +
+      ".json?fields=" + OFF_FIELDS + "&app_name=diet-tracker&app_version=" + APP_VERSION;
+  }
+
+  // Maps a lookup to one of a small set of outcomes the UI (Task 5) can act
+  // on directly: {ok:true, product} or {ok:false, reason:"notfound"|"ratelimit"|"network"}.
+  // No automatic retries here on purpose - OFF's limit is 15 req/min, and a
+  // retry storm on failure would burn that budget for no benefit; a human
+  // retry (re-scan / tap again) is the right recovery path.
+  // Malformed JSON (res.json() rejecting) is folded into "network": at that
+  // point we have a response but can't trust its body, which is the same
+  // situation the catch-all below exists for, and inventing a fourth reason
+  // the UI would have to special-case buys nothing over "network".
+  function fetchOffProduct(jan) {
+    return fetch(offProductUrl(jan)).then(function (res) {
+      if (res.status === 429) return { ok: false, reason: "ratelimit" };
+      if (!res.ok) return { ok: false, reason: "network" };
+      return res.json().then(function (json) {
+        var p = parseOffProduct(json, jan);
+        return p ? { ok: true, product: p } : { ok: false, reason: "notfound" };
+      });
+    })["catch"](function () { return { ok: false, reason: "network" }; });
   }
 
   // The brief's own snippet checked err.name !== "NotFoundException", but in this
