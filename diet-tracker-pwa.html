@@ -1189,7 +1189,7 @@
   "use strict";
 
   var STORAGE_KEY = "nexra-diet-tracker";
-  var APP_VERSION = "3.3";
+  var APP_VERSION = "3.4";
 
   // ---- self-test harness (activated by ?selftest=1) ----
   var T = {
@@ -1874,6 +1874,85 @@
     T.eq(isNotFoundError(ZXing.NotFoundException.getNotFoundInstance()), true, "library's own not-found instance");
     T.eq(isNotFoundError(new Error("boom")), false, "a real, unrelated error is not swallowed");
     T.eq(isNotFoundError(null), false, "null is not treated as not-found");
+  });
+
+  SELFTEST.add("isPlausibleProductCode accepts real barcode lengths and rejects everything else", function () {
+    T.eq(isPlausibleProductCode("4901005009158"), true, "13-digit EAN-13 accepted");
+    T.eq(isPlausibleProductCode("12345678"), true, "8-digit EAN-8/UPC-E accepted");
+    T.eq(isPlausibleProductCode("123456789012"), true, "12-digit UPC-A accepted");
+    T.eq(isPlausibleProductCode("http://itoen.co/mugi_nyuji1L"), false,
+      "the reported bug's decoded QR payload is rejected, not sent to the lookup");
+    T.eq(isPlausibleProductCode("1234567"), false, "7 digits (implausible length) rejected");
+    T.eq(isPlausibleProductCode("123456789"), false, "9 digits (implausible length) rejected");
+    T.eq(isPlausibleProductCode("12345678901234"), false, "14 digits (implausible length) rejected");
+    T.eq(isPlausibleProductCode("4901-0050-09158"), false, "non-digit characters rejected");
+    T.eq(isPlausibleProductCode(""), false, "empty string rejected");
+    T.eq(isPlausibleProductCode(null), false, "non-string input rejected");
+    T.eq(isPlausibleProductCode(4901005009158), false, "a number (not a string) is rejected");
+  });
+
+  // bitMatrixToPngDataUrl(matrix) - test-only helper that renders a ZXing
+  // BitMatrix (what QRCodeWriter.encode returns) to a canvas and reads it
+  // back out as a PNG data URL, in the same data: URL shape as
+  // SCAN_FIXTURE_EAN13_PNG above, so it can be fed to decodeFromImageUrl.
+  function bitMatrixToPngDataUrl(matrix) {
+    var w = matrix.getWidth(), h = matrix.getHeight();
+    var canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    var ctx = canvas.getContext("2d");
+    var imageData = ctx.createImageData(w, h);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var idx = (y * w + x) * 4;
+        var v = matrix.get(x, y) ? 0 : 255;
+        imageData.data[idx] = v;
+        imageData.data[idx + 1] = v;
+        imageData.data[idx + 2] = v;
+        imageData.data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+    return canvas.toDataURL("image/png");
+  }
+
+  // Regression test for the reported bug itself: scanning Itoen barley tea
+  // decoded the QR code printed next to the barcode ("http://itoen.co/
+  // mugi_nyuji1L") instead of the EAN-13 barcode, because the reader had no
+  // format hints and happily decoded any format ZXing supports. The earlier
+  // EAN-13 test above only proves the decoder can read EAN-13 in isolation;
+  // it can never prove the decoder picks EAN-13 over a QR code sharing the
+  // frame, since that fixture contains no QR code at all. This test closes
+  // that gap directly: it generates a real QR code (the vendored bundle can
+  // write QR_CODE, even though it has no 1-D writer - see the EAN-13
+  // fixture's comment above) encoding the exact URL from the bug report,
+  // confirms an unrestricted reader (proving the fixture itself is valid)
+  // does read it as a QR code, then asserts a reader built with the app's
+  // own buildScanFormatHints() cannot decode it, while that same restricted
+  // reader still decodes the real EAN-13 fixture correctly.
+  SELFTEST.add("scan reader restricted to retail barcode formats cannot decode a QR code (regression for the Itoen bug)", function () {
+    if (typeof ZXing === "undefined" || !ZXing.BrowserMultiFormatReader || !ZXing.QRCodeWriter) {
+      throw new Error("ZXing not loaded");
+    }
+    var qrPayload = "http://itoen.co/mugi_nyuji1L";
+    var qrMatrix = new ZXing.QRCodeWriter().encode(qrPayload, ZXing.BarcodeFormat.QR_CODE, 200, 200, null);
+    var qrDataUrl = bitMatrixToPngDataUrl(qrMatrix);
+    var unrestrictedReader = new ZXing.BrowserMultiFormatReader();
+    return unrestrictedReader.decodeFromImageUrl(qrDataUrl).then(function (result) {
+      T.eq(result.getText(), qrPayload, "sanity check: the generated QR fixture round-trips through an unrestricted reader");
+      T.eq(result.getBarcodeFormat(), ZXing.BarcodeFormat.QR_CODE, "sanity check: decoded as QR_CODE");
+      var restrictedReader = new ZXing.BrowserMultiFormatReader(buildScanFormatHints());
+      return restrictedReader.decodeFromImageUrl(qrDataUrl).then(function () {
+        throw new Error("restricted reader should not have been able to decode a QR code");
+      }, function (err) {
+        T.ok(!!err, "restricted reader (EAN_13/EAN_8/UPC_A/UPC_E hints only) fails to decode the QR code");
+      });
+    }).then(function () {
+      var eanReader = new ZXing.BrowserMultiFormatReader(buildScanFormatHints());
+      return eanReader.decodeFromImageUrl(SCAN_FIXTURE_EAN13_PNG).then(function (result) {
+        T.eq(result.getText(), "4901005009158", "restricted reader still decodes the real EAN-13 fixture correctly");
+      });
+    });
   });
 
   var OFF_FIXTURE_NAGEWA = { status: 1, product: {
@@ -4676,6 +4755,45 @@
     return false;
   }
 
+  // buildScanFormatHints() - restricts the reader to formats a retail
+  // product barcode can actually be. Without this, BrowserMultiFormatReader
+  // decodes every format ZXing supports, QR_CODE included - and Japanese
+  // packaging very often carries a QR code right next to the EAN-13
+  // barcode, which is easier to acquire and so wins the race. That is
+  // exactly the reported bug: a bottle of Itoen barley tea scanned its QR
+  // code ("http://itoen.co/mugi_nyuji1L") instead of its barcode, and that
+  // URL was sent to Open Food Facts as if it were a product code.
+  // Verified against the vendored vendor/zxing-0.23.0.umd.min.js (via
+  // `node -e "require(...)"`, since this is a UMD build) before relying on
+  // any of this: ZXing.BarcodeFormat has EAN_13/EAN_8/UPC_A/UPC_E members,
+  // ZXing.DecodeHintType.POSSIBLE_FORMATS exists, and
+  // `new ZXing.BrowserMultiFormatReader(hints)` takes a Map as its first
+  // constructor argument (constructor(t=null,e=500){const r=new Rr;
+  // r.setHints(t),super(r,e)} in the minified source).
+  function buildScanFormatHints() {
+    var hints = new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXing.BarcodeFormat.EAN_13,
+      ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.UPC_A,
+      ZXing.BarcodeFormat.UPC_E
+    ]);
+    return hints;
+  }
+
+  // isPlausibleProductCode(text) - a second, independent line of defense on
+  // top of the format hints above: even restricted to EAN/UPC formats,
+  // nothing should reach the Open Food Facts lookup unless it looks like a
+  // real product code. Requires digits only and a length a real code can
+  // have - 13 (EAN-13), 12 (UPC-A), or 8 (EAN-8, and UPC-E's compressed
+  // form). Used both to filter live camera decodes and to validate the
+  // manual JAN entry field.
+  function isPlausibleProductCode(text) {
+    if (typeof text !== "string") return false;
+    if (!/^[0-9]+$/.test(text)) return false;
+    return text.length === 8 || text.length === 12 || text.length === 13;
+  }
+
   var scanReader = null;
   function startBarcodeScan(videoEl, onResult, onError) {
     var stopped = false;
@@ -4687,10 +4805,21 @@
       onError("library");
       return stop;
     }
-    scanReader = new ZXing.BrowserMultiFormatReader();
+    scanReader = new ZXing.BrowserMultiFormatReader(buildScanFormatHints());
     scanReader.decodeFromVideoDevice(null, videoEl, function (result, err) {
       if (stopped) return;
-      if (result) { stop(); onResult(result.getText()); return; }
+      if (result) {
+        var text = result.getText();
+        // Defensive check even though the reader is already restricted to
+        // EAN/UPC formats above: if a decoded value still isn't a plausible
+        // product code, the user is very likely still lining up the real
+        // barcode in frame. Ignore this frame and keep scanning - do not
+        // stop the camera and do not surface a failure, since stopping here
+        // would just recreate the original bug's symptom for a different
+        // kind of bad decode.
+        if (!isPlausibleProductCode(text)) return;
+        stop(); onResult(text); return;
+      }
       // err comes on every frame while nothing is found yet, so filter those out
       if (err && !isNotFoundError(err)) { stop(); onError(err.name); }
     })["catch"](function (e) {
@@ -4885,8 +5014,12 @@
         readout.textContent = "読み取ったバーコード: " + jan;
         readout.hidden = false;
       }
-      var nameField = document.getElementById("m-name");
-      if (nameField) nameField.focus();
+      // Deliberately does not focus the name field (or anything else) here,
+      // the same reason openScanConfirm doesn't: on a phone this message is
+      // what the user needs to read, and focusing a text input pops the
+      // on-screen keyboard, which covers most of the screen including this
+      // message. The reported bug's screenshot showed exactly that -
+      // "この商品は登録されていません" hidden behind the keyboard.
       return;
     }
     var janInput = document.getElementById("scan-jan-input");
@@ -4959,6 +5092,14 @@
     janBtn.addEventListener("click", function () {
       var jan = janInput.value.trim();
       if (!jan) { setScanStatus("バーコード番号を入力してください", "err"); return; }
+      // Manual entry gets a clear message instead of a doomed lookup - unlike
+      // the live camera scan (which silently ignores an implausible decode
+      // and keeps scanning), a value the user deliberately typed and
+      // submitted deserves direct feedback about what's wrong with it.
+      if (!isPlausibleProductCode(jan)) {
+        setScanStatus("バーコード番号の形式が正しくありません(数字8桁・12桁・13桁)", "err");
+        return;
+      }
       lookupJan(jan);
     });
   }
