@@ -1189,7 +1189,7 @@
   "use strict";
 
   var STORAGE_KEY = "nexra-diet-tracker";
-  var APP_VERSION = "3.2";
+  var APP_VERSION = "3.3";
 
   // ---- self-test harness (activated by ?selftest=1) ----
   var T = {
@@ -2192,6 +2192,22 @@
     scanState = saved;
   });
 
+  SELFTEST.add("openScanConfirm scrolls the confirm panel into view so a filled-in result is not left below the fold", function () {
+    var saved = scanState;
+    var panel = document.getElementById("scanConfirmPanel");
+    var realScrollIntoView = panel.scrollIntoView;
+    var calls = 0;
+    panel.scrollIntoView = function () { calls++; };
+    try {
+      openScanConfirm(scanConfirmTestProduct(), "1");
+      T.ok(calls > 0, "scrollIntoView is called when the panel opens");
+    } finally {
+      panel.scrollIntoView = realScrollIntoView;
+      closeScanConfirm();
+      scanState = saved;
+    }
+  });
+
   SELFTEST.add("closeScanConfirm hides the panel and clears scan state", function () {
     var saved = scanState;
     openScanConfirm(scanConfirmTestProduct(), "1");
@@ -2254,6 +2270,23 @@
 
     setScanStatus("検索中...", "");
     T.eq(el.innerHTML.indexOf("data-status-detail") >= 0, false, "no detail element when detail is omitted");
+  });
+
+  SELFTEST.add("setScanStatus scrolls the status line into view when it shows a message, but not when clearing it", function () {
+    var el = document.getElementById("scan-status");
+    var realScrollIntoView = el.scrollIntoView;
+    var calls = 0;
+    el.scrollIntoView = function () { calls++; };
+    try {
+      setScanStatus("通信できませんでした", "err");
+      T.ok(calls > 0, "scrollIntoView is called when a message is shown");
+      calls = 0;
+      setScanStatus("", "");
+      T.eq(calls, 0, "scrollIntoView is not called when the status is being cleared");
+    } finally {
+      el.scrollIntoView = realScrollIntoView;
+      setScanStatus("", "");
+    }
   });
 
   var PROFILE = {
@@ -4713,7 +4746,9 @@
     status.textContent = "";
     status.className = "data-status";
     renderScanConfirm();
-    document.getElementById("scanConfirmPanel").hidden = false;
+    var panel = document.getElementById("scanConfirmPanel");
+    panel.hidden = false;
+    if (panel && panel.scrollIntoView) panel.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   // renderScanConfirm() - recomputes kcal/protein from the current portion
@@ -4830,6 +4865,7 @@
     if (detail) html += '<span class="data-status-detail">' + escapeHtml(detail) + "</span>";
     el.innerHTML = html;
     el.className = "data-status" + (kind ? " " + kind : "");
+    if (msg && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   // handleScanFailure(reason, jan) - routes every failure to a next step,
